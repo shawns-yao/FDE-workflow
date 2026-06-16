@@ -1,9 +1,46 @@
 # FDE Workstation 里程碑一设计文档
 
-**版本**：v1.0  
+**版本**：v1.1  
 **日期**：2026-06-15  
-**状态**：设计评审中  
+**状态**：设计评审通过，范围已调整  
 **负责人**：FDE团队
+
+---
+
+## ⚠️ M1 范围调整说明（v1.1更新）
+
+### 调整原因
+基于设计评审反馈，原v1.0方案存在"范围过大、平台化过早"的问题。M1应聚焦验证"Agent编排能力"，而非完整的FDE Workstation平台。
+
+### 核心调整
+
+**收敛原则**：跑通"Tekton构建 → ArgoCD部署 → 自动诊断 → 飞书通知"的最短闭环
+
+**保留（17个任务）**：
+- Pipeline/Diagnosis/Collaboration 三个Orchestrator
+- 规则引擎优先 + LLM增强的诊断架构
+- PostgreSQL持久化 + Redis Streams事件总线
+- 飞书通知 + 回滚申请（创建MR）
+- 最小API（部署列表、详情、日志查询）
+
+**推迟到M2**：
+- 自研日志系统（Loki-inspired）
+- 完整前端（React + ECharts）
+- 评估驱动引擎
+- 知识库自动沉淀
+
+**推迟到M3+**：
+- FDE Workstation五层十二域模块
+
+### 关键架构调整
+
+**诊断引擎**：
+- ~~原设计~~：规则引擎(80%) + LLM(20%)兜底
+- **新设计**：规则引擎优先（快速路径）+ LLM增强（未匹配时）
+
+**业务指标**：
+- 移除"项目周期4周→2周"（M1无法证明）
+- 保留可验证指标（镜像更新耗时、诊断时间、人工交互）
 
 ---
 
@@ -236,56 +273,77 @@ spec:
 1. 订阅"deploy.started"事件
 2. 监听ArgoCD Application状态变化
 3. 如果状态非Healthy：
-   a. 从自研日志系统拉取Pod日志
-   b. 从Prometheus获取监控指标
-   c. 从K8s获取Events
-4. 调用诊断引擎（规则引擎 + LLM混合诊断）
+   a. 从K8s API直接拉取Pod日志（最近500行）
+   b. 从K8s获取Events
+   c. 获取Git commit信息
+4. 调用诊断引擎（规则优先 + LLM增强）
 5. 生成诊断报告（根因、分类、修复建议）
-6. 存储到knowledge_cases表（高置信度案例）
+6. 存储到diagnosis_records表
 7. 发布"diagnosis.completed"事件
 ```
 
-**诊断引擎设计**：
+**诊断引擎设计（v1.1调整）**：
 
 ```python
 # engines/diagnosis_engine.py
 class DiagnosisEngine:
-    """混合诊断引擎：规则引擎(80%) + LLM(20%)"""
+    """规则优先 + LLM增强诊断引擎"""
     
     def __init__(self):
         self.rule_engine = RuleEngine()
         self.llm_client = ClaudeOpusClient()
-        self.knowledge_base = KnowledgeBase()
     
     async def diagnose(self, deploy_id: str) -> DiagnosisResult:
         # 1. 收集数据
-        logs = await self.log_system.query_logs(deploy_id=deploy_id)
+        logs = await self.k8s_client.get_pod_logs(deploy_id, tail_lines=500)
         events = await self.k8s_client.get_events(deploy_id)
-        metrics = await self.prometheus.query_metrics(deploy_id)
+        commit_info = await self.get_commit_info(deploy_id)
         
-        # 2. 规则引擎快速匹配
+        # 2. 规则引擎优先（快速路径，80%场景）
         rule_result = self.rule_engine.match(logs, events)
-        if rule_result.confidence > 0.85:
-            return rule_result  # 高置信度直接返回
         
-        # 3. LLM增强诊断（异步任务）
-        llm_task = self.celery.send_task(
-            'tasks.llm_diagnose',
-            args=[logs, events, metrics]
-        )
-        llm_result = await llm_task.get()
+        if rule_result.confidence >= 0.80:
+            # 规则引擎高置信度，直接返回（<3秒）
+            return DiagnosisResult(
+                method="rule",
+                root_cause=rule_result.root_cause,
+                solution=rule_result.solution,
+                confidence=rule_result.confidence,
+                category=rule_result.category
+            )
         
-        # 4. 合并结果
-        final_result = self.merge_results(rule_result, llm_result)
-        
-        # 5. 知识沉淀（置信度>0.9且人工未拒绝）
-        if final_result.confidence > 0.9:
-            await self.knowledge_base.save_case(final_result)
-        
-        return final_result
+        # 3. LLM增强诊断（仅当规则未匹配或低置信度）
+        try:
+            llm_result = await self.llm_client.diagnose(
+                logs=logs,
+                events=events,
+                commit_info=commit_info,
+                rule_hint=rule_result if rule_result.confidence > 0 else None
+            )
+            
+            return DiagnosisResult(
+                method="llm",
+                root_cause=llm_result.root_cause,
+                solution=llm_result.solution_steps,
+                confidence=llm_result.confidence,
+                category=llm_result.category
+            )
+            
+        except (LLMTimeout, LLMUnavailable) as e:
+            # 4. LLM失败，降级到规则引擎基础诊断
+            if rule_result.confidence > 0:
+                return rule_result  # 返回低置信度的规则诊断
+            else:
+                return DiagnosisResult(
+                    method="fallback",
+                    root_cause="诊断超时，请查看原始日志分析",
+                    solution="查看K8s Events和Pod日志",
+                    confidence=0.0,
+                    category="未知"
+                )
 ```
 
-**规则引擎**：
+**规则引擎（Top 10常见错误）**：
 ```python
 # engines/rule_engine.py
 RULES = [
@@ -346,20 +404,22 @@ K8s Events：
 
 **职责**：智能路由通知，处理人机交互，追踪修复进度
 
-**工作流**：
+**工作流（v1.1调整）**：
 ```
 1. 订阅"diagnosis.completed"事件
 2. 根据诊断结果智能路由：
-   - 成功 → 通知开发者"已上线，无需操作"
-   - 失败(代码问题) → @开发者，附诊断报告和日志链接
-   - 失败(配置问题) → @运维，附修复建议
+   - 成功 → 通知开发者"✅ {版本} 已上线"
+   - 失败(代码问题) → @开发者，附诊断摘要
+   - 失败(配置问题) → @运维，附诊断摘要
    - 失败(未知) → 同时@开发和运维
-3. 发送飞书交互卡片（包含按钮：查看日志、一键回滚、确认修复）
-4. 监听用户回调（处理按钮点击）
-5. 追踪修复进度（30分钟无响应自动升级通知）
+3. 发送飞书交互卡片（按钮：查看完整日志、申请回滚）
+4. 监听用户回调：
+   - "查看日志" → 返回日志详情URL
+   - "申请回滚" → 创建GitLab MR（回退YAML到上一版本）
+5. 追踪修复进度（可选，M1简化）
 ```
 
-**飞书交互卡片**：
+**飞书交互卡片（v1.1调整）**：
 ```python
 # integrations/feishu.py
 def create_failure_card(diagnosis: DiagnosisResult) -> dict:
@@ -382,9 +442,9 @@ def create_failure_card(diagnosis: DiagnosisResult) -> dict:
                     {"tag": "button", "text": {"content": "查看完整日志"},
                      "type": "primary", 
                      "value": {"action": "view_logs", "deploy_id": diagnosis.deploy_id}},
-                    {"tag": "button", "text": {"content": "一键回滚"},
+                    {"tag": "button", "text": {"content": "申请回滚"},
                      "type": "danger",
-                     "value": {"action": "rollback", "deploy_id": diagnosis.deploy_id}},
+                     "value": {"action": "request_rollback", "deploy_id": diagnosis.deploy_id}},
                     {"tag": "button", "text": {"content": "已修复"},
                      "value": {"action": "confirm_fixed", "deploy_id": diagnosis.deploy_id}}
                 ]}
@@ -393,7 +453,7 @@ def create_failure_card(diagnosis: DiagnosisResult) -> dict:
     }
 ```
 
-**回调处理**：
+**回调处理（v1.1调整）**：
 ```python
 # api/routers/webhooks.py
 @router.post("/feishu/callback")
@@ -402,39 +462,74 @@ async def handle_feishu_callback(request: Request):
     data = await request.json()
     action = data["action"]["value"]["action"]
     deploy_id = data["action"]["value"]["deploy_id"]
+    user_id = data["open_id"]  # 飞书用户ID
     
-    if action == "rollback":
-        await rollback_service.rollback_deployment(deploy_id)
-        return {"msg": "回滚已触发，预计2分钟完成"}
+    if action == "request_rollback":
+        # 创建回滚MR（需人工审核）
+        deploy = await db.get_deployment(deploy_id)
+        previous_deploy = await db.get_previous_successful_deploy(deploy.app_name)
+        
+        mr_url = await gitlab_service.create_rollback_mr(
+            app_name=deploy.app_name,
+            current_image=deploy.image,
+            rollback_to_image=previous_deploy.image,
+            reason=f"回滚部署 {deploy_id}，原因：部署失败",
+            author=user_id
+        )
+        
+        return {"msg": f"回滚MR已创建，等待审核：{mr_url}"}
     
     elif action == "view_logs":
         log_url = await log_service.generate_log_url(deploy_id)
         return {"url": log_url}
-    
-    elif action == "confirm_fixed":
-        await deployment_service.mark_as_fixed(deploy_id)
-        return {"msg": "已标记为修复完成"}
 ```
 
 ---
 
-## 五、自研日志系统设计（借鉴Loki）
+## 五、M1不做自研日志系统（v1.1调整）
 
-### 5.1 核心设计思路
+### 5.1 调整说明
 
-**Loki的核心创新**（参考：[Loki架构文档](https://grafana.com/docs/loki/latest/)）：
-1. **只索引元数据（标签），不索引日志内容** → 降低90%索引成本
-2. **日志按Stream分组** → Stream = 相同标签组合的日志流
-3. **Chunks压缩存储** → Snappy压缩，每Chunk约2MB，包含1万+行日志
-4. **分离存储** → 索引表 + 压缩Chunks
+原设计包含完整的Loki-inspired日志系统（Stream + Chunk + Snappy压缩），但经评审确认：
+- M1核心验证是"诊断闭环"，不是"日志平台"
+- 自研日志系统会消耗大量开发时间
+- 直接从K8s API读取日志足够满足M1需求
 
-**我们的简化版**：
-- MVP聚焦小规模场景（GB-TB级日志）
-- 单体架构（非分布式）
-- 保留核心设计（Stream + Chunk + Snappy）
-- 后端可扩展（文件系统 → S3/MinIO）
+### 5.2 M1日志采集方案
 
-### 5.2 核心概念
+**简化方案**：
+```python
+# log_system/collector.py (M1简化版)
+from kubernetes import client
+
+class LogCollector:
+    async def collect_pod_logs(
+        self, namespace: str, pod_name: str, 
+        container_name: str = None, tail_lines: int = 500
+    ) -> str:
+        """直接从K8s API读取Pod日志"""
+        logs = self.k8s_client.read_namespaced_pod_log(
+            name=pod_name,
+            namespace=namespace,
+            container=container_name,
+            tail_lines=tail_lines,
+            timestamps=True
+        )
+        return logs
+```
+
+**存储方案**：
+- 诊断时实时从K8s读取日志
+- 只存储诊断摘要到PostgreSQL（不存储完整日志）
+- 如需查看完整日志，通过API再次从K8s读取
+
+**M2再考虑**：
+- 接入现有Loki/Grafana
+- 或根据日志量需求决定是否自研
+
+---
+
+## 六、完整数据库Schema（v1.1调整）
 
 **Stream（日志流）**：
 ```python
@@ -637,56 +732,24 @@ CREATE TABLE diagnosis_records (
 CREATE INDEX idx_diagnosis_deploy ON diagnosis_records(deploy_id);
 CREATE INDEX idx_diagnosis_category ON diagnosis_records(category);
 
--- 知识库表
-CREATE TABLE knowledge_cases (
+-- ============================================
+-- 事件表（v1.1新增：替代Redis Streams持久化）
+-- ============================================
+
+-- 事件表（用于可靠事件传递）
+CREATE TABLE events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    error_pattern TEXT NOT NULL,  -- 错误特征（用于匹配）
-    root_cause TEXT NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    solution TEXT NOT NULL,
-    match_count INT DEFAULT 0,  -- 命中次数
-    success_rate FLOAT DEFAULT 0.0,  -- 解决成功率
+    event_type VARCHAR(50) NOT NULL,  -- deploy.started/diagnosis.completed
+    payload JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL,  -- pending/processing/completed/failed
+    retry_count INT DEFAULT 0,
+    error_message TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    processed_at TIMESTAMP
 );
 
-CREATE INDEX idx_knowledge_pattern ON knowledge_cases 
-    USING gin(to_tsvector('english', error_pattern));
-
--- ============================================
--- 日志系统表
--- ============================================
-
--- Stream索引表
-CREATE TABLE log_streams (
-    stream_id VARCHAR(64) PRIMARY KEY,
-    labels JSONB NOT NULL,
-    deploy_id UUID REFERENCES deployments(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_stream_labels ON log_streams USING gin(labels);
-CREATE INDEX idx_stream_deploy ON log_streams(deploy_id);
-
--- Chunk索引表
-CREATE TABLE log_chunks (
-    chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    stream_id VARCHAR(64) NOT NULL REFERENCES log_streams(stream_id) ON DELETE CASCADE,
-    start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP NOT NULL,
-    lines_count INT NOT NULL,
-    compressed_size INT NOT NULL,
-    storage_path TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_chunk_time ON log_chunks(stream_id, start_time, end_time);
-
--- 可选：小规模部署直接存PostgreSQL
-CREATE TABLE log_chunks_data (
-    chunk_id UUID PRIMARY KEY REFERENCES log_chunks(chunk_id) ON DELETE CASCADE,
-    compressed_data BYTEA NOT NULL
-);
+CREATE INDEX idx_event_status ON events(status, created_at);
+CREATE INDEX idx_event_type ON events(event_type);
 
 -- ============================================
 -- 通知和协作表
@@ -701,7 +764,7 @@ CREATE TABLE notifications (
     card_content JSONB,
     sent_at TIMESTAMP DEFAULT NOW(),
     read_at TIMESTAMP,
-    action_taken VARCHAR(50)  -- rollback/confirm_fixed/view_logs
+    action_taken VARCHAR(50)  -- request_rollback/view_logs
 );
 
 CREATE INDEX idx_notif_deploy ON notifications(deploy_id);
@@ -1482,48 +1545,53 @@ async def health_check():
 
 ---
 
-## 十四、开发计划（3周）
+## 十四、开发计划（3周，v1.1调整为17任务）
 
-### Week 1: 基础设施 + Pipeline Orchestrator
+### Week 1: 基础设施 + Pipeline Orchestrator（5任务）
 
 | 任务 | 负责人 | 交付物 | 验收标准 |
 |------|--------|--------|----------|
-| 项目初始化 | 后端 | 项目结构、依赖配置、Docker Compose | `docker-compose up -d`能启动所有服务 |
-| 数据库Schema | 后端 | SQL脚本、Alembic迁移 | 所有表创建成功，索引生效 |
-| Redis事件总线 | 后端 | event_bus.py | 支持Pub/Sub，单元测试通过 |
-| K8s/ArgoCD/Tekton集成 | 后端 | integrations/*.py | 能查询K8s Pod，调用ArgoCD API |
-| Pipeline Orchestrator | 后端 | orchestrators/pipeline.py | 监听Tekton事件 → 触发Image Updater → 发布Redis事件 |
-| 飞书基础集成 | 后端 | integrations/feishu.py | 能发送文本消息和简单卡片 |
-| 部署记录API | 后端 | api/routers/deployments.py | 查询部署历史，响应时间<300ms |
+| W1-T1: 项目初始化 | 后端 | docker-compose.yml + PostgreSQL + Redis | `docker-compose up -d`启动成功 |
+| W1-T2: 数据库Schema | 后端 | deployments、diagnosis_records、events表 | 表+索引创建成功 |
+| W1-T3: Redis Streams事件总线 | 后端 | shared/event_bus.py | 支持可靠事件传递，消费者组 |
+| W1-T4: Pipeline Orchestrator | 后端 | orchestrators/pipeline.py | 监听Tekton → 触发Image Updater |
+| W1-T5: 集成ArgoCD Image Updater | 后端 | integrations/argocd.py | YAML自动更新成功 |
 
-**Week 1里程碑**：Pipeline Agent跑通端到端（Tekton构建完成 → YAML更新 → ArgoCD同步 → 飞书通知）
+**Week 1里程碑**：Tekton构建完成 → YAML更新 → 部署记录入库
 
 ---
 
-### Week 2: 日志系统 + Diagnosis Orchestrator
+### Week 2: 诊断引擎 + 飞书通知（7任务）
 
 | 任务 | 负责人 | 交付物 | 验收标准 |
 |------|--------|--------|----------|
-| 日志收集器 | 后端 | log_system/collector.py | 能从K8s拉取Pod日志，按Stream分组 |
-| 日志压缩存储 | 后端 | log_system/ingester.py | Snappy压缩，压缩率>80% |
-| 日志查询器 | 后端 | log_system/querier.py | 支持按deploy_id和关键词查询，<1s |
-| 规则引擎 | 后端 | engines/rule_engine.py | 覆盖Top 10常见错误，准确率>90% |
-| LLM客户端 | 后端+算法 | engines/llm_client.py | 支持Claude Opus 4.7，可切换模型 |
-| Celery异步任务 | 后端 | workers/diagnosis_worker.py | LLM诊断异步执行，不阻塞主流程 |
-| Diagnosis Orchestrator | 后端 | orchestrators/diagnosis.py | 自动诊断失败部署，生成报告 |
-| 知识库操作 | 后端 | shared/knowledge_base.py | 高置信度案例自动入库 |
-| 诊断API | 后端 | api/routers/diagnosis.py | 获取诊断报告，确认准确性反馈 |
+| W2-T1: Diagnosis Orchestrator | 后端 | orchestrators/diagnosis.py | 监听ArgoCD状态，捕获Degraded/Failed |
+| W2-T2: K8s数据采集 | 后端 | integrations/kubernetes.py | 从K8s API读取Events + Pod logs |
+| W2-T3: 规则引擎 | 后端 | engines/rule_engine.py | Top 10常见错误，准确率>90%，<3秒 |
+| W2-T4: LLM诊断引擎 | 后端+算法 | engines/llm_client.py | Claude Opus 4.7，输出结构化报告 |
+| W2-T5: 诊断编排逻辑 | 后端 | engines/diagnosis_engine.py | 规则优先 + LLM增强，降级策略 |
+| W2-T6: 飞书Webhook + 卡片 | 后端 | integrations/feishu.py | 通知送达，展示诊断摘要 |
+| W2-T7: Collaboration Orchestrator + 回滚申请 | 后端 | orchestrators/collaboration.py | 智能路由，飞书按钮→创建GitLab MR |
 
-**Week 2里程碑**：Diagnosis Agent能自动诊断常见部署问题，LLM诊断准确率>80%
+**Week 2里程碑**：注入故障 → 规则/LLM诊断 → 飞书通知 → 回滚申请
 
 ---
 
-### Week 3: Collaboration Orchestrator + 评估引擎 + 前端
+### Week 3: API + 失败场景测试 + 交付（5任务）
 
 | 任务 | 负责人 | 交付物 | 验收标准 |
 |------|--------|--------|----------|
-| 飞书交互卡片 | 后端 | integrations/feishu.py增强 | 支持按钮、回调处理 |
-| Collaboration Orchestrator | 后端 | orchestrators/collaboration.py | 智能路由通知，处理用户回调 |
+| W3-T1: 最小API | 后端 | api/routers/*.py | 部署列表、详情、日志查询，响应<500ms |
+| W3-T2: 失败场景测试 | 测试 | 测试用例 | 事件重复、API不可用、LLM超时，降级策略生效 |
+| W3-T3: 安全增强 | 后端 | 权限配置 + 脱敏逻辑 | K8s权限最小化，日志脱敏 |
+| W3-T4: 性能测试 | 测试 | 性能报告 | 规则引擎<3s，LLM成本统计 |
+| W3-T5: 集成测试 + 部署文档 | 全员 | README + 部署指南 | 端到端演示通过，能按文档部署 |
+
+**Week 3里程碑**：完整闭环演示 + 失败场景不崩溃
+
+---
+
+## 十五、验收标准（Definition of Done，v1.1调整）
 | 回滚功能 | 后端 | 一键回滚API | 能回滚到上一稳定版本 |
 | Prometheus指标导出 | 后端 | /metrics接口 | 导出核心业务指标 |
 | 健康检查 | 后端 | /health接口 | 检查所有组件状态 |
@@ -1552,43 +1620,54 @@ async def health_check():
 
 ---
 
-## 十六、验收标准（Definition of Done）
+## 十五、验收标准（Definition of Done，v1.1调整）
 
-### 16.1 Agent Trio验收
+### 15.1 Agent Trio验收（成功路径）
 
 | 验收项 | 验收标准 | 验证方式 |
 |--------|----------|----------|
-| Pipeline Agent | 开发者push代码后，10分钟内完成"构建→YAML更新→ArgoCD同步"，全程无人干预 | 实际演示3次 |
-| Diagnosis Agent | 模拟5种常见部署故障，Agent能在5分钟内推送包含根因和修复建议的诊断报告 | 故障注入测试 |
-| Collaboration Agent | 部署失败时，正确的责任人能在1分钟内收到飞书通知，且通知包含完整上下文 | 查看飞书消息记录 |
-| 端到端链路 | 从代码提交到问题诊断通知，开发和运维之间的人工交互次数≤1次 | 统计10次部署的交互次数 |
-| 知识库沉淀 | 每个高置信度诊断案例自动入库，重复问题命中知识库优先使用规则 | 检查knowledge_cases表 |
+| Pipeline Agent | 开发者push代码后，5分钟内完成"构建→YAML更新→ArgoCD同步"，全程无人干预 | 实际演示3次 |
+| Diagnosis Agent（规则） | 模拟Top 10常见故障，规则引擎能在3秒内返回诊断（准确率>90%） | 故障注入测试 |
+| Diagnosis Agent（LLM） | 模拟复杂故障，LLM能在10秒内返回诊断（准确率>85%） | 故障注入测试 |
+| Collaboration Agent | 部署失败后1分钟内，正确责任人收到飞书通知，包含诊断摘要 | 查看飞书消息记录 |
+| 回滚申请 | 点击"申请回滚"按钮，能创建GitLab MR并返回链接 | 实际操作验证 |
+| 端到端链路 | 从代码提交到问题诊断通知，人工交互次数≤2次 | 统计10次部署 |
 
-### 16.2 性能验收
+### 15.2 失败场景验收（v1.1新增）
+
+| 验收项 | 验收标准 | 验证方式 |
+|--------|----------|----------|
+| 事件重复投递 | Tekton事件重复时不会重复部署（幂等性） | 重复发送事件 |
+| ArgoCD API不可用 | 事件进入failed状态，可重试 | 关闭ArgoCD服务 |
+| K8s权限不足 | 诊断报告明确说明缺失权限 | 移除部分权限测试 |
+| LLM超时/不可用 | 规则引擎兜底，返回基础诊断 | Mock LLM超时 |
+| 飞书发送失败 | 通知状态标记为失败，记录错误日志 | Mock飞书API失败 |
+
+### 15.3 性能验收
 
 | 指标 | 目标 | 验证方式 |
 |------|------|----------|
-| API响应时间 | 仪表盘<500ms，列表查询<300ms，详情<200ms | Apache Bench压测 |
-| 页面加载时间 | 首屏<1.5s，可交互<3s | Chrome DevTools |
-| 日志压缩率 | >80% | 对比原始日志和压缩Chunk大小 |
-| 数据库查询 | 所有查询必须使用索引 | EXPLAIN ANALYZE检查 |
+| API响应时间 | 列表<300ms，详情<200ms | Apache Bench压测 |
+| 规则引擎诊断 | <3秒 | 实际测量 |
+| LLM诊断 | <10秒 | 实际测量 |
+| 数据库查询 | 所有查询使用索引 | EXPLAIN ANALYZE检查 |
 
-### 16.3 功能验收
+### 15.4 功能验收（v1.1调整）
 
 | 功能 | 验收标准 |
 |------|----------|
-| 多模型切换 | 可在配置页面切换LLM模型，立即生效 |
-| 多环境支持 | 支持dev/staging/prod三个环境，auto_merge策略正确 |
-| 日志查询 | 支持按deploy_id、关键词、时间范围查询 |
-| 飞书交互 | 支持查看日志、一键回滚、确认修复三个按钮 |
-| 监控导出 | /metrics接口导出Prometheus格式指标 |
-| 健康检查 | /health接口正确反映各组件状态 |
+| 规则引擎 | 覆盖Top 10常见错误，准确率>90% |
+| LLM诊断 | 输出结构化JSON（root_cause/solution/confidence） |
+| 日志查询 | 从K8s API读取最近500行日志，响应<5秒 |
+| 飞书交互 | 支持"查看日志"、"申请回滚"两个按钮 |
+| 监控导出 | /metrics接口导出核心业务指标 |
+| 健康检查 | /health接口正确反映数据库、Redis、ArgoCD状态 |
 
 ---
 
-## 十七、后续扩展规划（里程碑二）
+## 十六、后续扩展规划（里程碑二及以后）
 
-### 17.1 功能扩展
+### 16.1 M2功能扩展
 
 - **RAG召回**：向量数据库（pgvector/FAISS）语义检索历史案例
 - **微服务支持**：一对多镜像映射，跨仓库编排
