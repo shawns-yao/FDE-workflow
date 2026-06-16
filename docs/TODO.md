@@ -1,230 +1,191 @@
-# FDE Workstation 里程碑一 - 开发进度跟踪
+# FDE Workstation 里程碑一 - 开发进度跟踪（v1.1）
 
 **更新时间**：2026-06-15  
 **项目周期**：3周（MVP验证期）  
-**当前状态**：🟡 设计阶段
+**当前状态**：🟢 设计评审通过，准备启动
 
 ---
 
-## 📊 总体进度
+## 📊 总体进度（v1.1调整）
 
-- [ ] Week 1: 基础设施 + Pipeline Orchestrator (0/7)
-- [ ] Week 2: 日志系统 + Diagnosis Orchestrator (0/9)
-- [ ] Week 3: Collaboration Orchestrator + 评估引擎 + 前端 (0/11)
+- [ ] Week 1: 基础设施 + Pipeline Orchestrator (0/5)
+- [ ] Week 2: 诊断引擎 + 飞书通知 (0/7)
+- [ ] Week 3: API + 失败场景测试 + 交付 (0/5)
 
-**完成率**：0% (0/27)
+**完成率**：0% (0/17)
 
 ---
 
-## 🎯 里程碑目标
+## 🎯 M1核心目标（v1.1收敛）
 
-### 业务指标
-- [ ] 镜像更新：5-10分钟 → 0秒
-- [ ] 问题诊断：2小时 → 5分钟
-- [ ] 人工交互：5-10轮 → 0-1轮
-- [ ] 项目周期：4周 → 2周
+### 唯一目标
+跑通"Tekton构建 → ArgoCD部署 → 自动诊断 → 飞书通知"的最短闭环
+
+### 业务指标（可验证）
+- [ ] 镜像更新人工耗时：5-10分钟 → <30秒
+- [ ] 诊断报告生成时间：2小时 → <5分钟（限定Top 10错误）
+- [ ] 人工交互次数：5-10轮 → 0-2轮（仅确定性故障）
+- [ ] 通知送达延迟：不定时 → <1分钟
 
 ### 技术指标
+- [ ] 规则引擎响应时间 < 3秒
+- [ ] LLM诊断准确率 > 85%
 - [ ] API响应时间 < 500ms
-- [ ] 页面加载时间 < 1.5s
-- [ ] 日志压缩率 > 80%
-- [ ] 诊断准确率 > 85%
+- [ ] 失败场景降级策略生效
 
 ---
 
-## Week 1: 基础设施 + Pipeline Orchestrator
+## Week 1: 基础设施 + Pipeline Orchestrator（5任务）
 
 **目标**：Pipeline Agent跑通端到端流程
 
 ### 任务清单
 
 - [ ] **W1-T1**: 项目初始化
-  - [ ] 创建项目结构
-  - [ ] 配置依赖（requirements.txt / pyproject.toml）
-  - [ ] 编写 docker-compose.yml
-  - [ ] 验证：`docker-compose up -d` 启动成功
+  - [ ] 创建项目目录结构
+  - [ ] 配置Poetry/pip依赖（FastAPI、SQLAlchemy、Redis、K8s客户端）
+  - [ ] 编写docker-compose.yml（PostgreSQL、Redis）
+  - [ ] 验证：\`docker-compose up -d\`启动成功
 
 - [ ] **W1-T2**: 数据库Schema
-  - [ ] 编写 SQL 脚本（12张表）
-  - [ ] 配置 Alembic 迁移
+  - [ ] 编写SQL脚本（deployments、diagnosis_records、events表）
+  - [ ] 配置Alembic迁移
   - [ ] 创建所有索引
   - [ ] 验证：所有表和索引创建成功
 
-- [ ] **W1-T3**: Redis事件总线
-  - [ ] 实现 `shared/event_bus.py`
-  - [ ] Pub/Sub 封装
-  - [ ] 编写单元测试
-  - [ ] 验证：事件发布和订阅正常
+- [ ] **W1-T3**: Redis Streams事件总线
+  - [ ] 实现\`shared/event_bus.py\`（Pub/Sub封装）
+  - [ ] 消费者组配置
+  - [ ] 事件重试逻辑
+  - [ ] 验证：事件可靠传递，幂等性保证
 
-- [ ] **W1-T4**: K8s/ArgoCD/Tekton集成
-  - [ ] 实现 `integrations/kubernetes.py`
-  - [ ] 实现 `integrations/argocd.py`
-  - [ ] 实现 `integrations/tekton.py`
-  - [ ] 验证：能查询 K8s Pod，调用 ArgoCD API
+- [ ] **W1-T4**: Pipeline Orchestrator
+  - [ ] 实现\`orchestrators/pipeline.py\`
+  - [ ] 监听Tekton PipelineRun完成事件
+  - [ ] 提取镜像信息（registry/image:tag）
+  - [ ] 创建部署记录到PostgreSQL
+  - [ ] 发布"deploy.started"事件
+  - [ ] 验证：捕获构建完成事件，记录入库
 
-- [ ] **W1-T5**: Pipeline Orchestrator
-  - [ ] 实现 `orchestrators/pipeline.py`
-  - [ ] 监听 Tekton 事件
-  - [ ] 触发 ArgoCD Image Updater
-  - [ ] 发布 Redis 事件
-  - [ ] 验证：端到端流程跑通
+- [ ] **W1-T5**: 集成ArgoCD Image Updater
+  - [ ] 实现\`integrations/argocd.py\`
+  - [ ] 调用ArgoCD API触发Image Updater
+  - [ ] 或通过Annotation自动触发
+  - [ ] 验证：YAML自动更新成功
 
-- [ ] **W1-T6**: 飞书基础集成
-  - [ ] 实现 `integrations/feishu.py`
-  - [ ] 发送文本消息
-  - [ ] 发送简单卡片
-  - [ ] 验证：能收到飞书通知
-
-- [ ] **W1-T7**: 部署记录API
-  - [ ] 实现 `api/routers/deployments.py`
-  - [ ] GET /api/v1/deployments
-  - [ ] GET /api/v1/deployments/{id}
-  - [ ] 验证：响应时间 < 300ms
-
-**Week 1 验收**：
-- [ ] Tekton构建完成 → YAML更新 → ArgoCD同步 → 飞书通知
+**Week 1验收**：
+- [ ] Tekton构建完成 → YAML更新 → 部署记录入库
 
 ---
 
-## Week 2: 日志系统 + Diagnosis Orchestrator
+## Week 2: 诊断引擎 + 飞书通知（7任务）
 
-**目标**：Diagnosis Agent能自动诊断常见部署问题
+**目标**：Diagnosis Agent能自动诊断并通知
 
 ### 任务清单
 
-- [ ] **W2-T1**: 日志收集器
-  - [ ] 实现 `log_system/collector.py`
-  - [ ] 从 K8s 拉取 Pod 日志
-  - [ ] 按 Stream 分组
-  - [ ] 验证：能收集所有 Pod 日志
+- [ ] **W2-T1**: Diagnosis Orchestrator
+  - [ ] 实现\`orchestrators/diagnosis.py\`
+  - [ ] 订阅"deploy.started"事件
+  - [ ] 监听ArgoCD Application状态
+  - [ ] 识别Degraded/Failed状态
+  - [ ] 验证：捕获部署失败状态
 
-- [ ] **W2-T2**: 日志压缩存储
-  - [ ] 实现 `log_system/ingester.py`
-  - [ ] Snappy 压缩
-  - [ ] Chunk 存储
-  - [ ] 验证：压缩率 > 80%
+- [ ] **W2-T2**: K8s数据采集
+  - [ ] 实现\`integrations/kubernetes.py\`
+  - [ ] 从K8s API读取Pod日志（最近500行）
+  - [ ] 获取K8s Events
+  - [ ] 获取Git commit信息
+  - [ ] 验证：完整数据采集成功
 
-- [ ] **W2-T3**: 日志查询器
-  - [ ] 实现 `log_system/querier.py`
-  - [ ] 按 deploy_id 查询
-  - [ ] 按关键词查询
-  - [ ] 验证：查询响应 < 1s
+- [ ] **W2-T3**: 规则引擎
+  - [ ] 实现\`engines/rule_engine.py\`
+  - [ ] 定义Top 10常见错误规则
+  - [ ] 错误模式匹配逻辑（正则表达式）
+  - [ ] 置信度计算
+  - [ ] 验证：准确率>90%，响应<3秒
 
-- [ ] **W2-T4**: 规则引擎
-  - [ ] 实现 `engines/rule_engine.py`
-  - [ ] 定义 Top 10 规则
-  - [ ] 错误匹配逻辑
-  - [ ] 验证：准确率 > 90%
+- [ ] **W2-T4**: LLM诊断引擎
+  - [ ] 实现\`engines/llm_client.py\`
+  - [ ] Claude Opus 4.7 API集成
+  - [ ] Prompt工程（输入输出格式）
+  - [ ] 结构化输出解析（JSON）
+  - [ ] 验证：输出包含root_cause/solution/confidence
 
-- [ ] **W2-T5**: LLM客户端
-  - [ ] 实现 `engines/llm_client.py`
-  - [ ] Claude Opus 4.7 集成
-  - [ ] 支持多模型切换
-  - [ ] 验证：API调用成功
+- [ ] **W2-T5**: 诊断编排逻辑
+  - [ ] 实现\`engines/diagnosis_engine.py\`
+  - [ ] 规则引擎优先（置信度>=0.8直接返回）
+  - [ ] LLM增强（规则未匹配时调用）
+  - [ ] 降级策略（LLM超时返回规则诊断）
+  - [ ] 验证：完整诊断流程跑通
 
-- [ ] **W2-T6**: Celery异步任务
-  - [ ] 实现 `workers/diagnosis_worker.py`
-  - [ ] 配置 Celery
-  - [ ] LLM诊断异步执行
-  - [ ] 验证：任务队列正常
+- [ ] **W2-T6**: 飞书Webhook + 卡片
+  - [ ] 实现\`integrations/feishu.py\`
+  - [ ] 飞书Webhook签名验证
+  - [ ] 失败诊断卡片模板
+  - [ ] 成功部署通知模板
+  - [ ] 验证：通知送达，展示诊断摘要
 
-- [ ] **W2-T7**: Diagnosis Orchestrator
-  - [ ] 实现 `orchestrators/diagnosis.py`
-  - [ ] 订阅部署事件
-  - [ ] 调用诊断引擎
-  - [ ] 生成诊断报告
-  - [ ] 验证：自动诊断失败部署
+- [ ] **W2-T7**: Collaboration Orchestrator + 回滚申请
+  - [ ] 实现\`orchestrators/collaboration.py\`
+  - [ ] 智能路由逻辑（根据category决定@谁）
+  - [ ] 飞书回调处理（/feishu/callback）
+  - [ ] "申请回滚"按钮 → 创建GitLab MR
+  - [ ] "查看日志"按钮 → 返回日志URL
+  - [ ] 验证：回滚MR创建成功
 
-- [ ] **W2-T8**: 知识库操作
-  - [ ] 实现 `shared/knowledge_base.py`
-  - [ ] 案例存储
-  - [ ] 案例检索
-  - [ ] 验证：高置信度案例自动入库
-
-- [ ] **W2-T9**: 诊断API
-  - [ ] 实现 `api/routers/diagnosis.py`
-  - [ ] GET /api/v1/diagnosis/{deploy_id}
-  - [ ] POST /api/v1/diagnosis/{deploy_id}/confirm
-  - [ ] 验证：API正常返回
-
-**Week 2 验收**：
-- [ ] 模拟5种常见故障，Agent能在5分钟内生成诊断报告
+**Week 2验收**：
+- [ ] 注入故障 → 规则/LLM诊断 → 飞书通知 → 回滚申请
 
 ---
 
-## Week 3: Collaboration Orchestrator + 评估引擎 + 前端
+## Week 3: API + 失败场景测试 + 交付（5任务）
 
-**目标**：Agent Trio完整协作，前端可视化展示
+**目标**：完整闭环演示 + 失败场景验证
 
 ### 任务清单
 
-- [ ] **W3-T1**: 飞书交互卡片
-  - [ ] 增强 `integrations/feishu.py`
-  - [ ] 交互按钮（查看日志、一键回滚、确认修复）
-  - [ ] 回调处理
-  - [ ] 验证：按钮点击正常响应
+- [ ] **W3-T1**: 最小API
+  - [ ] 实现\`api/routers/deployments.py\`
+  - [ ] GET /api/v1/deployments（部署列表）
+  - [ ] GET /api/v1/deployments/{id}（部署详情+诊断）
+  - [ ] GET /api/v1/logs/{deploy_id}（从K8s读日志）
+  - [ ] GET /health（健康检查）
+  - [ ] 验证：响应时间<500ms
 
-- [ ] **W3-T2**: Collaboration Orchestrator
-  - [ ] 实现 `orchestrators/collaboration.py`
-  - [ ] 智能路由通知
-  - [ ] 处理用户回调
-  - [ ] 验证：正确的人收到正确的通知
+- [ ] **W3-T2**: 失败场景测试
+  - [ ] 事件重复投递测试（幂等性）
+  - [ ] ArgoCD API不可用测试（降级）
+  - [ ] K8s权限不足测试（错误提示）
+  - [ ] LLM超时测试（规则引擎兜底）
+  - [ ] 飞书发送失败测试（状态记录）
+  - [ ] 验证：所有失败场景不崩溃
 
-- [ ] **W3-T3**: 回滚功能
-  - [ ] 实现回滚API
-  - [ ] ArgoCD回滚调用
-  - [ ] 验证：能回滚到上一稳定版本
+- [ ] **W3-T3**: 安全增强
+  - [ ] K8s权限最小化（只读Pod/Events）
+  - [ ] 日志脱敏（密钥、Token正则替换）
+  - [ ] 飞书签名验证
+  - [ ] GitLab API Token管理（K8s Secret）
+  - [ ] 验证：权限审计通过
 
-- [ ] **W3-T4**: Prometheus指标导出
-  - [ ] 实现 `/metrics` 接口
-  - [ ] 导出核心业务指标
-  - [ ] 验证：Prometheus能抓取指标
+- [ ] **W3-T4**: 性能测试
+  - [ ] 规则引擎响应时间测试（<3秒）
+  - [ ] LLM诊断响应时间测试（<10秒）
+  - [ ] API压测（Apache Bench）
+  - [ ] LLM成本统计
+  - [ ] 验证：性能指标达标
 
-- [ ] **W3-T5**: 健康检查
-  - [ ] 实现 `/health` 接口
-  - [ ] 检查所有组件状态
-  - [ ] 验证：健康检查正确反映状态
-
-- [ ] **W3-T6**: 评估引擎基础版
-  - [ ] 实现指标采集
-  - [ ] 基线对比
-  - [ ] 报告生成
-  - [ ] 验证：自动计算3个核心指标
-
-- [ ] **W3-T7**: 配置管理API
-  - [ ] 实现 `api/routers/config.py`
-  - [ ] LLM模型切换
-  - [ ] 环境配置管理
-  - [ ] 验证：配置修改立即生效
-
-- [ ] **W3-T8**: 前端基础框架
-  - [ ] React + Tailwind + Ant Design
-  - [ ] 仪表盘页面
-  - [ ] 部署历史页面
-  - [ ] 诊断记录页面
-  - [ ] 验证：页面加载 < 1.5s
-
-- [ ] **W3-T9**: 数据可视化
-  - [ ] ECharts集成
-  - [ ] 成功率图表
-  - [ ] 耗时趋势图表
-  - [ ] 验证：图表正确展示数据
-
-- [ ] **W3-T10**: 集成测试
-  - [ ] 端到端测试用例
-  - [ ] 模拟完整流程
-  - [ ] 验证：3个Agent协作无误
-
-- [ ] **W3-T11**: 部署文档
-  - [ ] README.md
-  - [ ] 部署指南
-  - [ ] API文档
+- [ ] **W3-T5**: 集成测试 + 部署文档
+  - [ ] 端到端集成测试
+  - [ ] 编写README.md
+  - [ ] 编写部署指南（docker-compose + K8s）
+  - [ ] API文档（Swagger/OpenAPI）
   - [ ] 验证：能按文档部署成功
 
-**Week 3 验收**：
-- [ ] Agent Trio完整协作
-- [ ] 前端可视化展示
-- [ ] 达到MVP验收标准
+**Week 3验收**：
+- [ ] 完整闭环演示（3次成功）
+- [ ] 5个失败场景测试通过
+- [ ] 部署文档可用
 
 ---
 
@@ -246,12 +207,22 @@ _待Week 1-2实施后补充_
 
 ---
 
+## 🚫 M1明确不做（推迟到M2）
+
+- 自研日志系统（Loki-inspired）
+- 完整前端（React + ECharts）
+- 评估驱动引擎
+- 知识库自动沉淀
+- 多环境复杂策略
+- 工单系统深度集成
+
+---
+
 ## 📚 参考资料
 
-- [设计文档](docs/superpowers/specs/2026-06-15-fde-workstation-m1-design.md)
-- [ArgoCD Image Updater文档](https://argocd-image-updater.readthedocs.io/)
-- [Tekton Triggers文档](https://tekton.dev/docs/triggers/)
-- [Grafana Loki架构](https://grafana.com/docs/loki/latest/)
+- [设计文档v1.1](superpowers/specs/2026-06-15-fde-workstation-m1-design.md)
+- [里程碑计划](requirements/milestone-1-plan.md)
+- [产品设计](requirements/product-design.md)
 
 ---
 
