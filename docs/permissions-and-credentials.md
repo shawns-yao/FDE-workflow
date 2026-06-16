@@ -6,6 +6,12 @@
 
 ---
 
+## 文档角色
+
+本文是 Week 0 权限和凭证准备文档。文档分类和阅读顺序见 [`docs/document-index.md`](document-index.md)，M1 架构决策以 [`docs/m1-architecture-decisions.md`](m1-architecture-decisions.md) 为最高优先级。
+
+---
+
 ## 核心原则
 
 1. **GitOps优先**：修改Git配置仓库，让ArgoCD自动同步，而非直接操作ArgoCD
@@ -416,10 +422,10 @@ async def handle_feishu_callback(request: Request):
 ```yaml
 # config/llm.yaml
 llm:
-  provider: anthropic
-  model: claude-opus-4.7
-  api_key: "${ANTHROPIC_API_KEY}"
-  api_base_url: "https://api.anthropic.com"
+  provider: "${LLM_PROVIDER}"
+  model: "${LLM_MODEL}"
+  api_key: "${LLM_API_KEY}"
+  api_base_url: "${LLM_API_BASE_URL}"
   
   # 调用控制
   timeout: 10  # 秒
@@ -631,7 +637,7 @@ spec:
 - [ ] **K8s ServiceAccount**：只能读取Pod/日志/Events/Deployment
 - [ ] **Tekton Webhook Secret**：验证Tekton回调签名
 - [ ] **飞书App ID + Secret**：发送消息，接收回调
-- [ ] **LLM API Key**：Claude Opus 4.7（或其他Provider）
+- [ ] **LLM API Key**：按实际Provider配置，不固定模型名
 - [ ] **PostgreSQL凭证**：数据库连接
 
 ### 必须配置的映射
@@ -662,8 +668,9 @@ spec:
 - [ ] 所有凭证已存储到K8s Secret
 
 **Day 2完成后必须确认**：
-- [ ] 事件总线使用Redis Streams（不是Pub/Sub）
-- [ ] 事件持久化到PostgreSQL events表
+- [ ] 关键事件以PostgreSQL events表作为可靠事件源
+- [ ] Redis Pub/Sub只作为可选worker唤醒机制
+- [ ] Worker具备pending events补偿扫描能力
 - [ ] 幂等性逻辑已实现
 
 **Day 3完成后必须确认**：

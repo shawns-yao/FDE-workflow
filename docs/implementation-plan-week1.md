@@ -6,6 +6,18 @@
 
 ---
 
+## M1实施基线
+
+Week 1 以 [`docs/m1-architecture-decisions.md`](m1-architecture-decisions.md) 为权威口径：
+
+- Pipeline Agent 通过 YAML 变更引擎修改 Git 配置仓库。
+- ArgoCD 只用于读取 Application 状态，以及 dev 环境在 Git 提交后主动 sync。
+- M1 不集成 ArgoCD Image Updater，不修改 ArgoCD Application annotation。
+- Tekton 接入优先使用 Webhook；Watch PipelineRun 只作为备选。
+- M1不以高并发为目标，事件机制使用PostgreSQL Outbox事件表；Redis Pub/Sub只作为可选worker唤醒。
+
+---
+
 ## Day 1: 项目初始化 + 数据库Schema
 
 ### W1-T1: 项目初始化
@@ -101,6 +113,21 @@ services:
       redis:
         condition: service_healthy
 
+  celery_worker:
+    build: .
+    command: celery -A backend.workers.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://fde:fde_dev_password@postgres:5432/fde_workstation
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app/backend
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
@@ -129,7 +156,9 @@ COPY . .
 CMD ["uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-**验收**：`docker-compose up -d` 启动成功，三个容器运行正常
+**验收**：`docker-compose up -d` 启动成功，PostgreSQL、Redis、API、Celery Worker容器运行正常。Celery Worker在Week 1可空转，Week 2承接LLM诊断异步任务。
+
+**说明**：Redis在M1不承载关键事件可靠性。关键事件以PostgreSQL events表为准；Redis仅作为Celery broker、缓存或Pub/Sub唤醒机制使用。
 
 ---
 
@@ -145,6 +174,45 @@ alembic init db/migrations
 ```ini
 sqlalchemy.url = postgresql+asyncpg://fde:fde_dev_password@localhost:5432/fde_workstation
 ```
+
+**编辑 Alembic 异步 env.py**：
+```python
+# backend/db/migrations/env.py 关键结构
+import asyncio
+from logging.config import fileConfig
+
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from alembic import context
+from backend.db.base import Base
+
+config = context.config
+fileConfig(config.config_file_name)
+target_metadata = Base.metadata
+
+def do_run_migrations(connection):
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+async def run_async_migrations():
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+def run_migrations_online():
+    asyncio.run(run_async_migrations())
+```
+
+**说明**：因为数据库驱动使用 `asyncpg`，Alembic 的 `env.py` 必须使用 `async_engine_from_config` 和 `connection.run_sync(...)`，不能直接使用同步 engine 模板。
 
 **初始迁移脚本（backend/db/migrations/versions/001_initial.py）**：
 ```python
@@ -169,6 +237,10 @@ def upgrade():
         sa.Column('commit_sha', sa.String(40)),
         sa.Column('author', sa.String(100)),
         sa.Column('status', sa.String(20), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('pending','planning','committing','syncing','rolling_out','healthy','degraded','diagnosing','notified','failed','cancelled')",
+            name='ck_deployments_status'
+        ),
         sa.Column('started_at', sa.DateTime, nullable=False, server_default=sa.text('NOW()')),
         sa.Column('completed_at', sa.DateTime),
         sa.Column('created_at', sa.DateTime, server_default=sa.text('NOW()')),
@@ -202,6 +274,10 @@ def upgrade():
         sa.Column('event_type', sa.String(50), nullable=False),
         sa.Column('payload', JSONB, nullable=False),
         sa.Column('status', sa.String(20), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('pending','processing','completed','failed','dead_letter')",
+            name='ck_events_status'
+        ),
         sa.Column('retry_count', sa.Integer, server_default='0'),
         sa.Column('error_message', sa.Text),
         sa.Column('created_at', sa.DateTime, server_default=sa.text('NOW()')),
@@ -226,7 +302,43 @@ def upgrade():
     
     op.create_index('idx_notif_deploy', 'notifications', ['deploy_id'])
 
+    # 配置变更请求表
+    op.create_table(
+        'change_requests',
+        sa.Column('id', UUID, primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('deploy_id', UUID, sa.ForeignKey('deployments.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('app_name', sa.String(100), nullable=False),
+        sa.Column('environment', sa.String(50), nullable=False),
+        sa.Column('action', sa.String(50), nullable=False),
+        sa.Column('status', sa.String(20), nullable=False),
+        sa.Column('request_payload', JSONB, nullable=False),
+        sa.Column('diff_summary', JSONB),
+        sa.Column('git_commit_sha', sa.String(40)),
+        sa.Column('created_at', sa.DateTime, server_default=sa.text('NOW()')),
+        sa.Column('completed_at', sa.DateTime)
+    )
+
+    op.create_index('idx_change_deploy', 'change_requests', ['deploy_id'])
+    op.create_index('idx_change_app_env', 'change_requests', ['app_name', 'environment'])
+
+    # 审计日志表
+    op.create_table(
+        'audit_logs',
+        sa.Column('id', UUID, primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('actor', sa.String(100), nullable=False),
+        sa.Column('source', sa.String(50), nullable=False),
+        sa.Column('action', sa.String(100), nullable=False),
+        sa.Column('resource_type', sa.String(50), nullable=False),
+        sa.Column('resource_id', sa.String(100), nullable=False),
+        sa.Column('metadata', JSONB),
+        sa.Column('created_at', sa.DateTime, server_default=sa.text('NOW()'))
+    )
+
+    op.create_index('idx_audit_resource', 'audit_logs', ['resource_type', 'resource_id'])
+
 def downgrade():
+    op.drop_table('audit_logs')
+    op.drop_table('change_requests')
     op.drop_table('notifications')
     op.drop_table('events')
     op.drop_table('diagnosis_records')
@@ -242,107 +354,73 @@ alembic upgrade head
 
 ---
 
-## Day 2: Redis Streams事件总线
+## Day 2: PostgreSQL Outbox事件机制
 
-### W1-T3: Redis Streams事件总线
+### W1-T3: PostgreSQL Outbox事件机制
 
-**实现事件总线（backend/shared/event_bus.py）**：
+**实现事件仓储（backend/shared/event_bus.py）**：
 ```python
-import redis.asyncio as redis
-import json
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Any
 import structlog
 
 logger = structlog.get_logger()
 
 class EventBus:
-    """基于Redis Streams的可靠事件总线"""
-    
-    def __init__(self, redis_url: str):
-        self.redis = redis.from_url(redis_url, decode_responses=True)
-        self.consumer_group = "fde-workstation"
-        
-    async def initialize(self):
-        """初始化消费者组"""
-        streams = ["deploy.started", "diagnosis.completed"]
-        for stream in streams:
-            try:
-                await self.redis.xgroup_create(
-                    stream, self.consumer_group, id='0', mkstream=True
-                )
-            except redis.ResponseError as e:
-                if "BUSYGROUP" not in str(e):
-                    raise
-    
-    async def publish(self, event_type: str, payload: Dict[str, Any]) -> str:
-        """发布事件到Redis Streams"""
-        event_id = await self.redis.xadd(
-            event_type,
-            {
-                "payload": json.dumps(payload),
-                "timestamp": datetime.utcnow().isoformat()
-            }
+    """PostgreSQL Outbox事件机制，Redis Pub/Sub只作为可选唤醒"""
+
+    def __init__(self, db, redis_client=None):
+        self.db = db
+        self.redis = redis_client
+
+    async def publish(self, event_type: str, payload: dict[str, Any], idempotency_key: str) -> str:
+        """写入PostgreSQL events表，作为唯一可靠事件源"""
+        event = await self.db.create_event(
+            event_type=event_type,
+            payload=payload,
+            status="pending",
+            idempotency_key=idempotency_key,
+            created_at=datetime.utcnow(),
         )
-        logger.info("event_published", event_type=event_type, event_id=event_id)
-        return event_id
-    
-    async def consume(
-        self, 
-        event_type: str, 
-        consumer_name: str,
-        block: int = 5000,
-        count: int = 10
-    ):
-        """消费事件（使用消费者组，支持ACK）"""
-        while True:
-            try:
-                events = await self.redis.xreadgroup(
-                    self.consumer_group,
-                    consumer_name,
-                    {event_type: '>'},
-                    count=count,
-                    block=block
-                )
-                
-                for stream, messages in events:
-                    for message_id, data in messages:
-                        payload = json.loads(data['payload'])
-                        yield message_id, payload
-                        
-            except Exception as e:
-                logger.error("consume_error", error=str(e))
-                await asyncio.sleep(1)
-    
-    async def ack(self, event_type: str, message_id: str):
-        """确认消息已处理"""
-        await self.redis.xack(event_type, self.consumer_group, message_id)
-        logger.debug("event_acked", event_type=event_type, message_id=message_id)
+
+        if self.redis:
+            await self.redis.publish("fde.events", event_type)
+
+        logger.info("event_created", event_type=event_type, event_id=str(event.id))
+        return str(event.id)
+
+    async def claim_pending(self, limit: int = 10):
+        """领取待处理事件，实际SQL使用FOR UPDATE SKIP LOCKED"""
+        return await self.db.claim_pending_events(limit=limit)
+
+    async def mark_completed(self, event_id: str):
+        await self.db.update_event_status(event_id, status="completed")
+
+    async def mark_failed(self, event_id: str, error_message: str):
+        await self.db.increment_event_retry(event_id, error_message=error_message)
 ```
 
-**测试事件总线（tests/unit/test_event_bus.py）**：
+**事件领取SQL语义**：
+```sql
+SELECT *
+FROM events
+WHERE status = 'pending'
+ORDER BY created_at ASC
+LIMIT 10
+FOR UPDATE SKIP LOCKED;
+```
+
+**Worker补偿扫描**：
 ```python
-import pytest
-from backend.shared.event_bus import EventBus
-
-@pytest.mark.asyncio
-async def test_publish_and_consume():
-    bus = EventBus("redis://localhost:6379/1")
-    await bus.initialize()
-    
-    # 发布事件
-    event_id = await bus.publish("test.event", {"data": "test"})
-    assert event_id is not None
-    
-    # 消费事件
-    consumer = bus.consume("test.event", "test-consumer")
-    message_id, payload = await consumer.__anext__()
-    
-    assert payload["data"] == "test"
-    await bus.ack("test.event", message_id)
+async def scan_pending_events():
+    while True:
+        events = await event_bus.claim_pending(limit=10)
+        for event in events:
+            await handle_event(event)
+        await asyncio.sleep(3)
 ```
 
-**验收**：事件可靠传递，消费者组正常工作，支持ACK
+**验收**：关键事件写入PostgreSQL events表；worker能扫描pending事件；重复idempotency_key不会重复创建部署；Redis Pub/Sub丢失时定时扫描仍能处理事件。
 
 ---
 
@@ -423,61 +501,138 @@ class PipelineOrchestrator:
             })
 ```
 
-**Tekton集成（backend/integrations/tekton.py）**：
+**Tekton Webhook解析（backend/integrations/tekton.py）**：
 ```python
-from kubernetes import client, config, watch
 import structlog
+from pydantic import BaseModel, Field
 
 logger = structlog.get_logger()
 
-class TektonClient:
-    """Tekton API客户端"""
-    
-    def __init__(self):
-        config.load_incluster_config()
-        self.custom_api = client.CustomObjectsApi()
-    
-    async def watch_pipelinerun_events(self):
-        """监听PipelineRun事件"""
-        w = watch.Watch()
-        for event in w.stream(
-            self.custom_api.list_namespaced_custom_object,
-            group="tekton.dev",
-            version="v1",
-            namespace="tekton-pipelines",
-            plural="pipelineruns"
-        ):
-            event_type = event['type']
-            obj = event['object']
-            
-            if event_type == "MODIFIED" and obj['status'].get('conditions'):
-                condition = obj['status']['conditions'][0]
-                if condition['type'] == 'Succeeded' and condition['status'] == 'True':
-                    yield self.extract_build_info(obj)
-    
-    def extract_build_info(self, pipelinerun: dict) -> dict:
-        """从PipelineRun提取构建信息"""
-        metadata = pipelinerun['metadata']
-        spec = pipelinerun['spec']
-        status = pipelinerun['status']
-        
+class TektonBuildEvent(BaseModel):
+    """Tekton成功构建事件"""
+    application: str
+    environment: str = "dev"
+    image_ref: str
+    commit_sha: str
+    pipeline_run_id: str
+    author: str | None = None
+    status: str = Field(pattern="^Succeeded$")
+
+class TektonWebhookParser:
+    """Tekton Webhook事件解析器"""
+
+    def parse(self, payload: dict) -> TektonBuildEvent:
+        """解析Tekton回调payload"""
+        event = TektonBuildEvent(**payload)
+        logger.info(
+            "tekton_event_parsed",
+            application=event.application,
+            environment=event.environment,
+            pipeline_run_id=event.pipeline_run_id
+        )
+        return event
+
+    def to_deploy_payload(self, event: TektonBuildEvent) -> dict:
+        """转换为部署事件payload"""
+        image, tag = event.image_ref.rsplit(":", 1)
         return {
-            "app_name": metadata['labels'].get('app'),
-            "image": status['pipelineResults'].get('image'),
-            "tag": status['pipelineResults'].get('tag'),
-            "commit_sha": spec['params'].get('git-revision'),
-            "author": spec['params'].get('git-author'),
-            "environment": metadata['labels'].get('environment', 'dev')
+            "app_name": event.application,
+            "image": image,
+            "tag": tag,
+            "image_ref": event.image_ref,
+            "commit_sha": event.commit_sha,
+            "author": event.author,
+            "environment": event.environment,
+            "pipeline_run_id": event.pipeline_run_id
         }
 ```
 
-**验收**：能捕获Tekton构建完成事件，部署记录入库
+**备选说明**：如后续必须Watch PipelineRun，`status.pipelineResults` 和 `spec.params` 都应按数组解析，不可按字典 `.get()` 读取。
+
+**验收**：能接收Tekton构建成功Webhook，校验`Succeeded`状态，部署记录入库
 
 ---
 
-## Day 4-5: ArgoCD Image Updater集成
+## Day 4-5: YAML变更引擎 + Git提交 + ArgoCD同步
 
-### W1-T5: 集成ArgoCD Image Updater
+### W1-T5: YAML变更引擎 + Git提交 + ArgoCD同步
+
+**YAML变更引擎（backend/engines/yaml_change_engine.py）**：
+```python
+from dataclasses import dataclass
+from pathlib import Path
+import yaml
+
+@dataclass
+class ImageUpdateRequest:
+    app_name: str
+    environment: str
+    config_file: Path
+    resource_kind: str
+    resource_name: str
+    container_name: str
+    image_ref: str
+
+class RawKubernetesAdapter:
+    """M1 Raw Kubernetes YAML适配器"""
+
+    def update_image(self, request: ImageUpdateRequest) -> dict:
+        """结构化更新Deployment容器镜像"""
+        docs = list(yaml.safe_load_all(request.config_file.read_text(encoding="utf-8")))
+
+        changed = False
+        for doc in docs:
+            if not doc:
+                continue
+            if doc.get("kind") != request.resource_kind:
+                continue
+            if doc.get("metadata", {}).get("name") != request.resource_name:
+                continue
+
+            containers = (
+                doc["spec"]["template"]["spec"]
+                .get("containers", [])
+            )
+            for container in containers:
+                if container.get("name") == request.container_name:
+                    old_image = container.get("image")
+                    container["image"] = request.image_ref
+                    changed = True
+                    break
+
+        if not changed:
+            raise ValueError("未找到目标Deployment或容器")
+
+        request.config_file.write_text(
+            yaml.safe_dump_all(docs, sort_keys=False, allow_unicode=True),
+            encoding="utf-8"
+        )
+
+        return {
+            "action": "update_image",
+            "resource": f"{request.resource_kind}/{request.resource_name}",
+            "container": request.container_name,
+            "image": request.image_ref
+        }
+```
+
+**Git配置仓库集成（backend/integrations/git.py）**：
+```python
+from pathlib import Path
+
+class GitConfigClient:
+    """Git配置仓库客户端"""
+
+    async def checkout_worktree(self, repo_url: str, branch: str, deploy_id: str) -> Path:
+        """为每个部署任务创建独立工作目录"""
+        # 示例：实际实现需封装git clone/fetch/checkout并处理清理
+        ...
+
+    async def commit_and_push(self, worktree: Path, message: str) -> str:
+        """提交并推送配置变更"""
+        # 示例：提交前必须拉取最新分支，并处理冲突
+        ...
+```
 
 **ArgoCD集成（backend/integrations/argocd.py）**：
 ```python
@@ -487,38 +642,18 @@ import structlog
 logger = structlog.get_logger()
 
 class ArgoCDClient:
-    """ArgoCD API客户端"""
+    """ArgoCD API客户端：只读状态 + dev环境sync"""
     
     def __init__(self, server_url: str, token: str):
         self.server_url = server_url
         self.headers = {"Authorization": f"Bearer {token}"}
         self.client = httpx.AsyncClient()
     
-    async def trigger_image_update(
-        self, 
-        app_name: str, 
-        environment: str, 
-        image: str, 
-        tag: str
-    ):
-        """触发ArgoCD Image Updater检查更新"""
-        # 方法1：通过Annotation触发（推荐）
-        application_name = f"{app_name}-{environment}"
-        
-        # 获取Application
-        response = await self.client.get(
-            f"{self.server_url}/api/v1/applications/{application_name}",
-            headers=self.headers
-        )
-        response.raise_for_status()
-        
-        app = response.json()
-        
-        # 更新Annotation触发Image Updater
-        app['metadata']['annotations']['argocd-image-updater.argoproj.io/image-list'] = \
-            f"app={image}"
-        
-        # 或者方法2：直接触发同步
+    async def trigger_sync(self, application_name: str, environment: str):
+        """触发同步（仅dev环境）"""
+        if environment != "dev":
+            raise PermissionError("M1只允许dev环境主动触发ArgoCD sync")
+
         sync_response = await self.client.post(
             f"{self.server_url}/api/v1/applications/{application_name}/sync",
             headers=self.headers,
@@ -529,7 +664,7 @@ class ArgoCDClient:
         logger.info(
             "argocd_sync_triggered",
             app_name=application_name,
-            image=f"{image}:{tag}"
+            environment=environment
         )
     
     async def get_application_status(self, app_name: str, environment: str) -> dict:
@@ -553,21 +688,34 @@ class ArgoCDClient:
 ```python
 # 在handle_build_complete中添加
 from backend.integrations.argocd import ArgoCDClient
+from backend.engines.yaml_change_engine import RawKubernetesAdapter, ImageUpdateRequest
 
 argocd = ArgoCDClient(
     server_url=config.ARGOCD_SERVER,
     token=config.ARGOCD_TOKEN
 )
 
-await argocd.trigger_image_update(
+adapter = RawKubernetesAdapter()
+change = adapter.update_image(ImageUpdateRequest(
     app_name=app_name,
     environment=environment,
-    image=image,
-    tag=tag
+    config_file=config_file,
+    resource_kind="Deployment",
+    resource_name=app_name,
+    container_name=app_name,
+    image_ref=f"{image}:{tag}"
+))
+
+git_commit_sha = await git_client.commit_and_push(
+    worktree=worktree,
+    message=f"feat: 更新{app_name}镜像到{tag}"
 )
+
+if environment == "dev":
+    await argocd.trigger_sync(application_name=argocd_app, environment=environment)
 ```
 
-**验收**：YAML自动更新成功，ArgoCD开始同步
+**验收**：Raw Kubernetes YAML结构化更新成功，Git提交成功，dev环境ArgoCD开始同步
 
 ---
 
@@ -580,9 +728,10 @@ await argocd.trigger_image_update(
 echo "=== Week 1 端到端测试 ==="
 
 # 1. 模拟Tekton构建完成事件
-echo "1. 发布模拟构建完成事件..."
-redis-cli XADD tekton.pipelinerun.completed \* \
-  payload '{"app_name":"test-app","image":"registry.com/test-app","tag":"v1.0.0","commit_sha":"abc123","author":"developer","environment":"dev"}'
+echo "1. 调用Tekton Webhook模拟构建完成事件..."
+curl -X POST http://localhost:8000/api/v1/webhooks/tekton \
+  -H "Content-Type: application/json" \
+  -d '{"application":"test-app","environment":"dev","image_ref":"registry.com/test-app:v1.0.0","commit_sha":"abc123","pipeline_run_id":"test-run-001","author":"developer","status":"Succeeded"}'
 
 # 2. 等待5秒
 echo "2. 等待Pipeline Orchestrator处理..."
@@ -592,9 +741,9 @@ sleep 5
 echo "3. 检查部署记录..."
 psql -U fde -d fde_workstation -c "SELECT id, app_name, image, tag, status FROM deployments ORDER BY created_at DESC LIMIT 1;"
 
-# 4. 检查deploy.started事件
-echo "4. 检查deploy.started事件..."
-redis-cli XREAD COUNT 1 STREAMS deploy.started 0
+# 4. 检查events表
+echo "4. 检查events表..."
+psql -U fde -d fde_workstation -c "SELECT id, event_type, status, retry_count FROM events ORDER BY created_at DESC LIMIT 5;"
 
 echo "=== 测试完成 ==="
 ```
@@ -602,8 +751,10 @@ echo "=== 测试完成 ==="
 **验收标准**：
 - [ ] Tekton事件能被捕获
 - [ ] 部署记录成功入库
-- [ ] deploy.started事件发布成功
-- [ ] ArgoCD同步被触发
+- [ ] deploy.started事件写入PostgreSQL events表
+- [ ] YAML变更引擎生成结构化变更
+- [ ] Git配置仓库提交成功
+- [ ] dev环境ArgoCD同步被触发
 
 ---
 
@@ -634,7 +785,8 @@ logging:
 **Week 1完成标志**：
 ✅ docker-compose启动成功  
 ✅ 数据库表和索引全部创建  
-✅ Redis Streams事件总线工作正常  
-✅ Pipeline Orchestrator能捕获Tekton事件  
-✅ ArgoCD Image Updater集成成功  
+✅ PostgreSQL Outbox事件机制工作正常  
+✅ Pipeline Orchestrator能接收Tekton Webhook  
+✅ YAML变更引擎更新Raw Kubernetes配置  
+✅ Git提交成功，dev环境ArgoCD同步成功  
 ✅ 端到端测试通过

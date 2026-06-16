@@ -177,7 +177,7 @@ FDE Workstation 里程碑一开发计划
 
 关联分析：识别是否是某次代码提交引入的问题（通过Git Blame关联）
 
-知识库积累：每次诊断结果沉淀到内部知识库，越用越准
+诊断记录：M1保存诊断结果和证据摘要；知识库自动沉淀推迟到M2
 
 ### 3.4 Agent 3: Collaboration Agent（协作代理）
 
@@ -297,7 +297,7 @@ FDE-Workstation-M1/
 
 │   ├── event_bus/                  # 事件总线（Agent间通信）
 
-│   ├── knowledge_base/             # 知识库（诊断经验沉淀）
+│   ├── diagnosis_records/          # 诊断记录（M1）；知识库沉淀推迟到M2
 
 │   └── im_connector/               # IM连接器（飞书）
 

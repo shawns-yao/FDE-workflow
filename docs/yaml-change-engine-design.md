@@ -6,6 +6,14 @@
 
 ---
 
+## 文档角色
+
+本文是配置变更引擎专项设计文档。文档分类和阅读顺序见 [`docs/document-index.md`](document-index.md)，M1 架构决策以 [`docs/m1-architecture-decisions.md`](m1-architecture-decisions.md) 为最高优先级。
+
+M1 只实现 Raw Kubernetes 子集；Helm 和 Kustomize 保留 Adapter 设计，不作为 Week 1 必交付内容。
+
+---
+
 ## 一、核心问题
 
 ### 问题1：能否直接同步？
@@ -243,7 +251,7 @@ class Target:
     path: str              # spec.template.spec.containers[name=demo-app].image
 ```
 
-### 2.2 双层架构
+### 3.2 双层架构
 
 ```
 ┌─────────────────────────────────────────┐
@@ -266,9 +274,9 @@ class Target:
 
 ---
 
-## 三、支持的变更类型
+## 四、支持的变更类型
 
-### 3.1 第一类：更新字段（M1必须）
+### 4.1 第一类：更新字段（M1必须）
 
 **场景**：更新镜像、副本数、资源限制、环境变量值
 
@@ -292,7 +300,7 @@ value:
 5. 保存文件
 6. 提交Git
 
-### 3.2 第二类：新增字段或列表项（M1必须）
+### 4.2 第二类：新增字段或列表项（M1必须）
 
 **场景**：新增环境变量、volume、annotation、sidecar容器
 
@@ -319,7 +327,7 @@ policy:
 3. 如果存在且`policy=update`，则更新值
 4. 如果不存在，则追加到env列表
 
-### 3.3 第三类：删除字段或列表项（M1可选）
+### 4.3 第三类：删除字段或列表项（M1可选）
 
 **场景**：删除环境变量、annotation、某个容器、某个volume
 
@@ -345,7 +353,7 @@ policy:
   if_missing: ignore  # 或 fail
 ```
 
-### 3.4 第四类：新增整个资源（M2）
+### 4.4 第四类：新增整个资源（M2）
 
 **场景**：新增ConfigMap、Secret、Service、Ingress、HPA
 
@@ -364,7 +372,7 @@ value:
     key1: value1
 ```
 
-### 3.5 第五类：删除整个资源（M2）
+### 4.5 第五类：删除整个资源（M2）
 
 **场景**：删除Ingress、HPA
 
@@ -380,9 +388,9 @@ target:
 
 ---
 
-## 四、M1实现范围
+## 五、M1实现范围
 
-### 4.1 必须支持的操作（Week 1-2）
+### 5.1 必须支持的操作（Week 1-2）
 
 | 操作 | 用途 | 优先级 |
 |------|------|--------|
@@ -391,11 +399,10 @@ target:
 | `update_env` | 更新环境变量值 | P0 |
 | `remove_env` | 删除环境变量 | P1 |
 | `set_replicas` | 更新副本数 | P1 |
-| `add_annotation` | 新增annotation | P1 |
-| `remove_annotation` | 删除annotation | P2 |
 
-### 4.2 暂不支持（M2）
+### 5.2 暂不支持（M2）
 
+- 新增或删除annotation
 - 新增sidecar容器
 - 修改selector
 - 修改serviceAccountName
@@ -407,9 +414,9 @@ target:
 
 ---
 
-## 五、配置类型适配器
+## 六、配置类型适配器
 
-### 5.1 三种配置类型
+### 6.1 三种配置类型
 
 ```
 YamlAdapter (抽象层)
@@ -418,19 +425,22 @@ YamlAdapter (抽象层)
 └── HelmValuesAdapter      # Helm values.yaml
 ```
 
-### 5.2 RawKubernetesAdapter（M1优先）
+### 6.2 RawKubernetesAdapter（M1优先）
 
 **适用场景**：直接修改Deployment.yaml
 
 **实现**：
 ```python
+from pathlib import Path
+
 class RawKubernetesAdapter:
     """原生Kubernetes YAML适配器"""
     
     def update_image(self, yaml_file: str, target: Target, image: str):
         """更新镜像"""
         # 1. 加载YAML
-        docs = yaml.safe_load_all(open(yaml_file))
+        yaml_path = Path(yaml_file)
+        docs = list(yaml.safe_load_all(yaml_path.read_text(encoding="utf-8")))
         
         # 2. 定位资源
         deployment = self.find_resource(
@@ -453,7 +463,10 @@ class RawKubernetesAdapter:
         self.validate_deployment(deployment)
         
         # 6. 保存文件
-        yaml.safe_dump_all(docs, open(yaml_file, 'w'))
+        yaml_path.write_text(
+            yaml.safe_dump_all(docs, sort_keys=False, allow_unicode=True),
+            encoding="utf-8"
+        )
         
         return {
             "old_image": old_image,
@@ -461,7 +474,7 @@ class RawKubernetesAdapter:
         }
 ```
 
-### 5.3 KustomizeAdapter（M2）
+### 6.3 KustomizeAdapter（M2）
 
 **适用场景**：Kustomize配置，优先修改`kustomization.yaml`和`patches`
 
@@ -579,7 +592,7 @@ class KustomizeAdapter:
         yaml.safe_dump(kustomization, open(kustomization_file, 'w'))
 ```
 
-### 5.4 HelmValuesAdapter（M2）
+### 6.4 HelmValuesAdapter（M2）
 
 **适用场景**：Helm Chart，优先修改`values.yaml`
 
@@ -738,9 +751,9 @@ valuesSchema:
 
 ---
 
-## 六、同一业务操作的三种实现（⭐ 核心）
+## 七、同一业务操作的三种实现
 
-### 6.1 示例：启用Ingress
+### 7.1 示例：启用Ingress
 
 **前端操作**：
 ```typescript
@@ -831,7 +844,7 @@ async def handle_set_ingress_enabled(request: ChangeRequest):
         await adapter.enable_component("ingress")
 ```
 
-### 6.2 示例：更新镜像
+### 7.2 示例：更新镜像
 
 | 配置类型 | 修改位置 | 修改内容 |
 |----------|----------|----------|
@@ -843,9 +856,9 @@ async def handle_set_ingress_enabled(request: ChangeRequest):
 
 ---
 
-## 七、单体应用实现（M1）
+## 八、单体应用实现（M1）
 
-### 6.1 配置模型
+### 8.1 配置模型
 
 ```yaml
 # config/applications.yaml
@@ -883,7 +896,7 @@ applications:
         - set_replicas
 ```
 
-### 6.2 完整流程
+### 8.2 完整流程
 
 ```python
 # orchestrators/pipeline.py
@@ -947,9 +960,9 @@ async def handle_build_complete(payload: dict):
 
 ---
 
-## 七、微服务扩展（M2）
+## 九、微服务扩展（M2）
 
-### 7.1 配置模型差异
+### 9.1 配置模型差异
 
 ```yaml
 # 微服务配置
@@ -973,7 +986,7 @@ systems:
         # ...
 ```
 
-### 7.2 变更引擎不变
+### 9.2 变更引擎不变
 
 **关键**：微服务只是多了一层服务映射，Patch引擎完全复用：
 
@@ -991,18 +1004,21 @@ yaml_engine.apply_changes(change_request)
 
 ---
 
-## 八、关键校验
+## 十、关键校验
 
-### 8.1 修改前校验
+### 10.1 修改前校验
 
 ```python
+from pathlib import Path
+
 def validate_before_change(change_request: YamlChangeRequest):
     """修改前校验"""
     # 1. 文件存在
-    assert os.path.exists(yaml_file), "YAML文件不存在"
+    yaml_path = Path(yaml_file)
+    assert yaml_path.exists(), "YAML文件不存在"
     
     # 2. 文件可解析
-    docs = yaml.safe_load_all(open(yaml_file))
+    docs = list(yaml.safe_load_all(yaml_path.read_text(encoding="utf-8")))
     
     # 3. 目标资源存在
     resource = find_resource(docs, kind, name)
@@ -1018,13 +1034,14 @@ def validate_before_change(change_request: YamlChangeRequest):
     assert not has_concurrent_task(app_name, environment)
 ```
 
-### 8.2 修改后校验
+### 10.2 修改后校验
 
 ```python
 def validate_after_change(yaml_file: str, diff: dict):
     """修改后校验"""
     # 1. YAML仍可解析
-    docs = yaml.safe_load_all(open(yaml_file))
+    yaml_path = Path(yaml_file)
+    docs = list(yaml.safe_load_all(yaml_path.read_text(encoding="utf-8")))
     
     # 2. 只修改了允许的字段
     for change in diff["changes"]:
@@ -1040,7 +1057,7 @@ def validate_after_change(yaml_file: str, diff: dict):
     assert deployment["metadata"]["namespace"] == expected_namespace
 ```
 
-### 8.3 提交前校验
+### 10.3 提交前校验
 
 ```python
 def prepare_git_commit(change_result: dict):
@@ -1069,9 +1086,9 @@ Diff:
 
 ---
 
-## 九、不要做的事（⚠️ 重要）
+## 十一、不要做的事
 
-### 9.1 绝对禁止
+### 11.1 绝对禁止
 
 ```python
 # ❌ 错误做法1：字符串替换
@@ -1097,20 +1114,21 @@ def update_yaml_wrong(yaml_file, prompt):
     open(yaml_file, 'w').write(llm_output)  # 危险！
 ```
 
-### 9.2 为什么危险
+### 11.2 为什么危险
 
 1. **字符串替换**：可能误伤注释、文档、其他容器
 2. **正则替换**：无法保证YAML结构合法性
 3. **任意路径**：可能修改selector、serviceAccount、namespace
 4. **LLM生成**：不可控，可能引入安全漏洞
 
-### 9.3 正确做法
+### 11.3 正确做法
 
 ```python
 # ✅ 正确做法：结构化修改
 def update_image_correct(yaml_file, target: Target, new_image: str):
     # 1. 解析YAML
-    docs = yaml.safe_load_all(open(yaml_file))
+    yaml_path = Path(yaml_file)
+    docs = list(yaml.safe_load_all(yaml_path.read_text(encoding="utf-8")))
     
     # 2. 定位资源
     deployment = find_resource(docs, kind="Deployment", name=target.resource_name)
@@ -1129,12 +1147,15 @@ def update_image_correct(yaml_file, target: Target, new_image: str):
     validate_deployment(deployment)
     
     # 7. 保存
-    yaml.safe_dump_all(docs, open(yaml_file, 'w'))
+    yaml_path.write_text(
+        yaml.safe_dump_all(docs, sort_keys=False, allow_unicode=True),
+        encoding="utf-8"
+    )
 ```
 
 ---
 
-## 十、M1实施检查清单
+## 十二、M1实施检查清单
 
 ### Week 1完成后
 
@@ -1162,9 +1183,9 @@ def update_image_correct(yaml_file, target: Target, new_image: str):
 
 ---
 
-## 十一、示例代码
+## 十三、示例代码
 
-### 11.1 变更引擎核心
+### 13.1 变更引擎核心
 
 ```python
 # engines/yaml_engine.py
@@ -1225,7 +1246,7 @@ class YamlChangeEngine:
 
 ---
 
-## 总结
+## 十四、总结
 
 ### ✅ M1核心原则（更新）
 
@@ -1255,7 +1276,7 @@ class YamlChangeEngine:
 
 ### 🚀 实施顺序（更新）
 
-**Week 1 (Day 3)**: 
+**Week 1 (Day 4-5)**: 
 - RawKubernetesAdapter基础框架
 - update_image操作
 - 配置Schema加载器
@@ -1276,7 +1297,7 @@ class YamlChangeEngine:
 
 ---
 
-## 十二、当前测试项目确认 ⚠️
+## 十五、当前测试项目确认
 
 ### 需要确认的问题
 
@@ -1336,9 +1357,9 @@ class YamlChangeEngine:
 
 ---
 
-## 十三、M1实施检查清单（更新）
+## 十六、M1实施检查清单（更新）
 
-### Week 1 Day 3完成后
+### Week 1 Day 4-5完成后
 
 **配置Schema**：
 - [ ] 创建`config/schemas/`目录
@@ -1398,7 +1419,7 @@ class YamlChangeEngine:
 
 ---
 
-## 十四、方案对比总结
+## 十七、方案对比总结
 
 ### 推荐方案：业务操作 + Adapter + Schema ✅
 

@@ -6,6 +6,12 @@
 
 ---
 
+## 文档角色
+
+本文是任务跟踪、缺口记录和技术债清单。文档分类和阅读顺序见 [`docs/document-index.md`](document-index.md)，M1 架构决策以 [`docs/m1-architecture-decisions.md`](m1-architecture-decisions.md) 为最高优先级。
+
+---
+
 ## 📊 总体进度（v1.1调整）
 
 - [ ] Week 0: 前置准备（权限与凭证）(0/7) ⚠️ **必须先完成**
@@ -16,6 +22,8 @@
 **完成率**：0% (0/24)
 
 **⚠️ 重要提醒**：Week 0的权限准备是Week 1的阻塞任务，必须先完成！
+
+**计数说明**：24项包含Week 0的7项前置准备；主设计文档中的17项指Week 1-3实施任务，不包含Week 0。
 
 ---
 
@@ -74,7 +82,7 @@
   - [ ] 配置签名验证Token
 
 - [ ] **LLM API Key**
-  - [ ] 获取Claude Opus 4.7 API Key
+  - [ ] 按实际Provider获取API Key
   - [ ] 配置成本限制
   - [ ] 测试API可用性
 
@@ -95,8 +103,8 @@
 
 - [ ] **W1-T1**: 项目初始化
   - [ ] 创建项目目录结构
-  - [ ] 配置Poetry/pip依赖（FastAPI、SQLAlchemy、Redis、K8s客户端）
-  - [ ] 编写docker-compose.yml（PostgreSQL、Redis）
+  - [ ] 配置Poetry/pip依赖（FastAPI、SQLAlchemy、K8s客户端；Redis仅用于可选唤醒/缓存/Celery）
+  - [ ] 编写docker-compose.yml（PostgreSQL；Redis按Celery/缓存需要启用）
   - [ ] 验证：\`docker-compose up -d\`启动成功
 
 - [ ] **W1-T2**: 数据库Schema
@@ -105,25 +113,25 @@
   - [ ] 创建所有索引
   - [ ] 验证：所有表和索引创建成功
 
-- [ ] **W1-T3**: Redis Streams事件总线
-  - [ ] 实现\`shared/event_bus.py\`（Pub/Sub封装）
-  - [ ] 消费者组配置
-  - [ ] 事件重试逻辑
-  - [ ] 验证：事件可靠传递，幂等性保证
+- [ ] **W1-T3**: PostgreSQL Outbox事件机制
+  - [ ] 实现\`shared/event_bus.py\`（events表可靠事件源）
+  - [ ] 实现worker定时扫描pending events
+  - [ ] Redis Pub/Sub作为可选worker唤醒
+  - [ ] 验证：Pub/Sub丢失时仍可通过补偿扫描处理事件，幂等性保证
 
 - [ ] **W1-T4**: Pipeline Orchestrator
   - [ ] 实现\`orchestrators/pipeline.py\`
-  - [ ] 监听Tekton PipelineRun完成事件
+  - [ ] 接收Tekton构建成功Webhook
   - [ ] 提取镜像信息（registry/image:tag）
   - [ ] 创建部署记录到PostgreSQL
   - [ ] 发布"deploy.started"事件
   - [ ] 验证：捕获构建完成事件，记录入库
 
-- [ ] **W1-T5**: 集成ArgoCD Image Updater
-  - [ ] 实现\`integrations/argocd.py\`
-  - [ ] 调用ArgoCD API触发Image Updater
-  - [ ] 或通过Annotation自动触发
-  - [ ] 验证：YAML自动更新成功
+- [ ] **W1-T5**: YAML变更引擎 + Git提交 + ArgoCD同步
+  - [ ] 实现\`engines/yaml_change_engine.py\`（M1先支持Raw Kubernetes）
+  - [ ] 实现\`integrations/git.py\`（独立工作区、提交、推送）
+  - [ ] 实现\`integrations/argocd.py\`（只读状态 + dev环境sync）
+  - [ ] 验证：YAML结构化更新成功，Git提交成功，dev环境ArgoCD同步成功
 
 **Week 1验收**：
 - [ ] Tekton构建完成 → YAML更新 → 部署记录入库
@@ -159,7 +167,7 @@
 
 - [ ] **W2-T4**: LLM诊断引擎
   - [ ] 实现\`engines/llm_client.py\`
-  - [ ] Claude Opus 4.7 API集成
+  - [ ] 可配置LLM Provider集成
   - [ ] Prompt工程（输入输出格式）
   - [ ] 结构化输出解析（JSON）
   - [ ] 验证：输出包含root_cause/solution/confidence

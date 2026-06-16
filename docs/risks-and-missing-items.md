@@ -6,6 +6,12 @@
 
 ---
 
+## 文档角色
+
+本文是 M1 风险和遗漏项约束文档。文档分类和阅读顺序见 [`docs/document-index.md`](document-index.md)，M1 架构决策以 [`docs/m1-architecture-decisions.md`](m1-architecture-decisions.md) 为最高优先级。
+
+---
+
 ## 核心判断
 
 当前设计已覆盖：
@@ -153,7 +159,9 @@ async def apply_changes(self, request: YamlChangeRequest):
 ```python
 # shared/lock_manager.py
 import asyncio
-from typing import Dict
+import time
+import uuid
+from contextlib import asynccontextmanager
 import redis.asyncio as redis
 
 class DeploymentLockManager:
@@ -163,35 +171,51 @@ class DeploymentLockManager:
         self.redis = redis_client
         self.lock_timeout = 300  # 5分钟超时
     
-    async def acquire_lock(self, app_name: str, environment: str) -> bool:
+    async def acquire_lock(self, app_name: str, environment: str) -> str | None:
         """获取部署锁"""
         lock_key = f"deploy_lock:{app_name}:{environment}"
+        owner_token = str(uuid.uuid4())
         
-        # 尝试获取锁
         acquired = await self.redis.set(
             lock_key, 
-            "locked", 
-            nx=True,  # 只在不存在时设置
+            owner_token,
+            nx=True,
             ex=self.lock_timeout
         )
         
-        return acquired is not None
+        return owner_token if acquired else None
     
-    async def release_lock(self, app_name: str, environment: str):
-        """释放部署锁"""
+    async def release_lock(self, app_name: str, environment: str, owner_token: str):
+        """只允许锁持有者释放锁"""
         lock_key = f"deploy_lock:{app_name}:{environment}"
-        await self.redis.delete(lock_key)
+        script = """
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+            return redis.call("DEL", KEYS[1])
+        end
+        return 0
+        """
+        await self.redis.eval(script, 1, lock_key, owner_token)
     
-    async def wait_for_lock(self, app_name: str, environment: str, timeout: int = 600):
+    async def wait_for_lock(self, app_name: str, environment: str, timeout: int = 600) -> str:
         """等待获取锁"""
         start_time = time.time()
         
         while time.time() - start_time < timeout:
-            if await self.acquire_lock(app_name, environment):
-                return True
+            owner_token = await self.acquire_lock(app_name, environment)
+            if owner_token:
+                return owner_token
             await asyncio.sleep(1)
         
         raise TimeoutError(f"等待部署锁超时: {app_name}/{environment}")
+
+    @asynccontextmanager
+    async def locked(self, app_name: str, environment: str, timeout: int = 600):
+        """部署锁上下文，保证获取者释放"""
+        owner_token = await self.wait_for_lock(app_name, environment, timeout)
+        try:
+            yield
+        finally:
+            await self.release_lock(app_name, environment, owner_token)
 ```
 
 **集成到Pipeline Orchestrator**：
@@ -201,24 +225,11 @@ async def handle_build_complete(payload: dict):
     app_name = payload["application"]
     environment = payload["environment"]
     
-    # ⭐ 获取部署锁
     lock_manager = DeploymentLockManager(redis_client)
     
-    if not await lock_manager.acquire_lock(app_name, environment):
-        # 锁已被占用，进入等待队列
-        logger.warning(
-            "deployment_lock_busy",
-            app_name=app_name,
-            environment=environment
-        )
-        await lock_manager.wait_for_lock(app_name, environment)
-    
-    try:
+    async with lock_manager.locked(app_name, environment):
         # 执行部署变更
         await perform_deployment(payload)
-    finally:
-        # ⭐ 释放锁
-        await lock_manager.release_lock(app_name, environment)
 ```
 
 **额外保护**：Git工作区隔离
