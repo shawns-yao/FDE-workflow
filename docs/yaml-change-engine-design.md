@@ -37,11 +37,188 @@
 输入是：对哪个应用、哪个环境、哪个资源、哪个字段执行 set/add/remove 操作
 ```
 
+### 问题4：前端应该暴露什么能力？
+
+**答案：前端暴露业务开关和受控表单，不是任意YAML编辑器**
+
+**错误做法**：
+```
+前端：一个YAML编辑器，用户直接修改任意路径
+后端：接收YAML，直接提交Git
+```
+
+**正确做法**：
+```
+前端：开启Debug模式 / 启用Ingress / 修改副本数
+后端：翻译为受控action，根据配置类型选择适配器
+```
+
+**完整数据流**：
+```
+前端业务操作
+  → 后端变更意图（ChangeRequest）
+  → 策略校验（权限+环境）
+  → 配置类型适配器（Raw/Helm/Kustomize）
+  → YAML/values/kustomization修改
+  → diff校验
+  → Git提交
+  → ArgoCD同步
+```
+
 ---
 
-## 二、架构设计
+## 二、前端Schema驱动设计（⭐ 新增）
 
-### 2.1 核心模型
+### 2.1 前端不应该做的
+
+❌ **任意YAML编辑器**（主路径）  
+❌ **让用户输入YAML path**（如`spec.template.spec.containers[0].env[3].value`）  
+❌ **直接传YAML内容给后端**  
+❌ **绕过权限和策略的"专家模式"**
+
+### 2.2 前端应该做的
+
+✅ **业务开关和表单**：
+```
+基础发布:
+  - 镜像版本选择器
+  - 自动同步开关
+  - 发布环境选择
+  - 同步策略
+
+运行配置:
+  - 副本数输入（1-10）
+  - CPU/内存配置
+  - 环境变量表格
+  - 启动参数
+
+网络配置:
+  - Service类型选择
+  - Ingress开关
+  - 域名配置
+  - TLS开关
+
+配置项:
+  - ConfigMap key-value编辑
+  - Secret引用选择
+  - 外部配置引用
+
+高级能力:
+  - 灰度开关（M2）
+  - 回滚策略（M2）
+  - 健康检查配置
+  - 自动诊断开关
+```
+
+### 2.3 配置Schema设计
+
+**每个应用必须注册配置Schema**：
+
+```yaml
+# config/schemas/demo-app.yaml
+application: demo-app
+configType: raw-kubernetes  # 或 helm-values / kustomize
+
+capabilities:
+  # 更新镜像
+  - name: update_image
+    label: "镜像版本"
+    control: text
+    required: true
+    default: "latest"
+    validation: "^[\\w.-]+:[\\w.-]+$"
+    environments: [dev, staging, prod]
+    requiresApproval: false
+  
+  # 副本数
+  - name: set_replicas
+    label: "副本数"
+    control: number
+    required: true
+    default: 2
+    min: 1
+    max: 10
+    environments: [dev, staging, prod]
+    requiresApproval:
+      prod: true  # prod需要审批
+  
+  # 环境变量
+  - name: set_env
+    label: "环境变量"
+    control: key-value-table
+    required: false
+    sensitive: false
+    environments: [dev, staging, prod]
+  
+  # Ingress开关
+  - name: set_ingress_enabled
+    label: "启用Ingress"
+    control: switch
+    required: false
+    default: false
+    environments: [dev, staging]
+    requiresApproval: false
+    relatedFields:
+      - name: ingress_host
+        label: "域名"
+        control: text
+        required: true
+        when: "ingress_enabled == true"
+```
+
+### 2.4 前端渲染逻辑
+
+```typescript
+// 前端伪代码
+async function loadAppConfig(appName: string, environment: string) {
+  const schema = await api.getAppSchema(appName, environment);
+  
+  // 根据schema渲染表单
+  schema.capabilities.forEach(cap => {
+    if (!cap.environments.includes(environment)) return;
+    
+    switch (cap.control) {
+      case 'text':
+        renderTextInput(cap);
+        break;
+      case 'number':
+        renderNumberInput(cap);
+        break;
+      case 'switch':
+        renderSwitch(cap);
+        break;
+      case 'key-value-table':
+        renderKeyValueTable(cap);
+        break;
+    }
+  });
+}
+```
+
+### 2.5 三层操作模式
+
+**普通模式**（M1必须）：
+- 只展示开关、输入框、选择器
+- 用户修改后提交
+- 后端自动生成diff并执行
+
+**高级模式**（M1可选）：
+- 展示变更diff（YAML格式）
+- 用户只能确认或取消
+- 不能直接编辑YAML
+
+**专家模式**（M2）：
+- YAML只读预览
+- 可创建MR但不能直接同步
+- 需要特殊权限
+
+**M1只做普通模式**，高级模式和专家模式推迟到M2。
+
+---
+
+## 三、架构设计（更新）
+
+### 3.1 核心模型
 
 **通用性 = 资源定位 + 操作类型 + 校验规则 + 渲染验证**
 
@@ -286,7 +463,18 @@ class RawKubernetesAdapter:
 
 ### 5.3 KustomizeAdapter（M2）
 
-**优先修改**：
+**适用场景**：Kustomize配置，优先修改`kustomization.yaml`和`patches`
+
+**同一个业务操作的不同实现**：
+
+| 业务操作 | Kustomize实现 |
+|----------|---------------|
+| 更新镜像 | 修改`images[].newTag` |
+| 新增env | 添加patch文件 |
+| 启用Ingress | 启用component |
+| 修改副本数 | 添加replicas patch |
+
+**示例1：更新镜像**
 ```yaml
 # kustomization.yaml
 images:
@@ -294,23 +482,368 @@ images:
     newTag: 20260616-abc123
 ```
 
-而不是直接修改base/deployment.yaml
+**示例2：新增环境变量**
+```yaml
+# 新增patch文件：patches/add-env-feature-flag.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: demo-app
+          env:
+            - name: FEATURE_FLAG
+              value: enabled
+
+# 引用patch：kustomization.yaml
+patches:
+  - path: patches/add-env-feature-flag.yaml
+```
+
+**示例3：启用Ingress**
+```yaml
+# kustomization.yaml
+components:
+  - components/ingress  # 启用Ingress component
+```
+
+**实现**：
+```python
+class KustomizeAdapter:
+    """Kustomize适配器"""
+    
+    def update_image(self, kustomization_file: str, image: str, tag: str):
+        """更新镜像"""
+        kustomization = yaml.safe_load(open(kustomization_file))
+        
+        # 查找或创建images配置
+        if 'images' not in kustomization:
+            kustomization['images'] = []
+        
+        # 查找现有镜像配置
+        image_config = None
+        for img in kustomization['images']:
+            if img['name'] == image:
+                image_config = img
+                break
+        
+        # 更新或新增
+        if image_config:
+            image_config['newTag'] = tag
+        else:
+            kustomization['images'].append({
+                'name': image,
+                'newTag': tag
+            })
+        
+        yaml.safe_dump(kustomization, open(kustomization_file, 'w'))
+    
+    def add_env(self, base_path: str, deployment_name: str, env_name: str, env_value: str):
+        """新增环境变量（通过patch）"""
+        patch_file = f"patches/add-env-{env_name.lower()}.yaml"
+        patch_content = {
+            'apiVersion': 'apps/v1',
+            'kind': 'Deployment',
+            'metadata': {'name': deployment_name},
+            'spec': {
+                'template': {
+                    'spec': {
+                        'containers': [{
+                            'name': deployment_name,
+                            'env': [{
+                                'name': env_name,
+                                'value': env_value
+                            }]
+                        }]
+                    }
+                }
+            }
+        }
+        
+        # 写入patch文件
+        yaml.safe_dump(patch_content, open(os.path.join(base_path, patch_file), 'w'))
+        
+        # 更新kustomization.yaml
+        kustomization_file = os.path.join(base_path, 'kustomization.yaml')
+        kustomization = yaml.safe_load(open(kustomization_file))
+        
+        if 'patches' not in kustomization:
+            kustomization['patches'] = []
+        
+        if {'path': patch_file} not in kustomization['patches']:
+            kustomization['patches'].append({'path': patch_file})
+        
+        yaml.safe_dump(kustomization, open(kustomization_file, 'w'))
+```
 
 ### 5.4 HelmValuesAdapter（M2）
 
-**优先修改**：
+**适用场景**：Helm Chart，优先修改`values.yaml`
+
+**关键**：每个Chart的values结构可能不同，需要应用注册Schema
+
+**同一个业务操作的不同实现**：
+
+| 业务操作 | Helm实现 |
+|----------|----------|
+| 更新镜像 | 修改`image.tag` |
+| 新增env | 追加到`env`或`extraEnv` |
+| 启用Ingress | 设置`ingress.enabled=true` |
+| 修改副本数 | 设置`replicaCount` |
+
+**示例1：更新镜像**
 ```yaml
 # values.yaml
 image:
   repository: registry.com/demo-app
   tag: 20260616-abc123
+  pullPolicy: IfNotPresent
 ```
 
-而不是直接修改templates/deployment.yaml
+**示例2：新增环境变量**
+```yaml
+# values.yaml
+env:
+  - name: DATABASE_URL
+    value: postgres://...
+  - name: FEATURE_FLAG
+    value: enabled
+```
+
+**示例3：启用Ingress**
+```yaml
+# values.yaml
+ingress:
+  enabled: true
+  hosts:
+    - host: demo.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: demo-tls
+      hosts:
+        - demo.example.com
+```
+
+**实现**：
+```python
+class HelmValuesAdapter:
+    """Helm Values适配器"""
+    
+    def __init__(self, values_schema: dict):
+        """需要加载应用的values schema"""
+        self.schema = values_schema
+    
+    def update_image(self, values_file: str, tag: str):
+        """更新镜像tag"""
+        values = yaml.safe_load(open(values_file))
+        
+        # 根据schema确定路径
+        image_path = self.schema.get('image_tag_path', 'image.tag')
+        
+        # 更新值
+        self.set_nested_value(values, image_path, tag)
+        
+        yaml.safe_dump(values, open(values_file, 'w'))
+    
+    def add_env(self, values_file: str, env_name: str, env_value: str):
+        """新增环境变量"""
+        values = yaml.safe_load(open(values_file))
+        
+        # 根据schema确定env列表路径
+        env_path = self.schema.get('env_path', 'env')
+        
+        # 获取env列表
+        env_list = self.get_nested_value(values, env_path, [])
+        
+        # 检查是否已存在
+        for env in env_list:
+            if env.get('name') == env_name:
+                env['value'] = env_value  # 更新
+                break
+        else:
+            # 新增
+            env_list.append({'name': env_name, 'value': env_value})
+        
+        # 写回
+        self.set_nested_value(values, env_path, env_list)
+        yaml.safe_dump(values, open(values_file, 'w'))
+    
+    def set_ingress_enabled(self, values_file: str, enabled: bool, host: str = None):
+        """设置Ingress开关"""
+        values = yaml.safe_load(open(values_file))
+        
+        if 'ingress' not in values:
+            values['ingress'] = {}
+        
+        values['ingress']['enabled'] = enabled
+        
+        if enabled and host:
+            if 'hosts' not in values['ingress']:
+                values['ingress']['hosts'] = []
+            
+            # 更新或新增host
+            if not values['ingress']['hosts']:
+                values['ingress']['hosts'].append({
+                    'host': host,
+                    'paths': [{'path': '/', 'pathType': 'Prefix'}]
+                })
+            else:
+                values['ingress']['hosts'][0]['host'] = host
+        
+        yaml.safe_dump(values, open(values_file, 'w'))
+    
+    def set_nested_value(self, data: dict, path: str, value):
+        """设置嵌套字典值（例如 image.tag）"""
+        keys = path.split('.')
+        current = data
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
+    
+    def get_nested_value(self, data: dict, path: str, default=None):
+        """获取嵌套字典值"""
+        keys = path.split('.')
+        current = data
+        for key in keys:
+            if key not in current:
+                return default
+            current = current[key]
+        return current
+```
+
+**Helm Values Schema配置**：
+```yaml
+# config/schemas/order-api-helm.yaml
+application: order-api
+configType: helm-values
+valuesFile: environments/dev/order-api/values.yaml
+
+# Values结构映射
+valuesSchema:
+  image_tag_path: image.tag
+  image_repository_path: image.repository
+  replicas_path: replicaCount
+  env_path: env
+  resources_path: resources
+  ingress_enabled_path: ingress.enabled
+  ingress_hosts_path: ingress.hosts
+```
 
 ---
 
-## 六、单体应用实现（M1）
+## 六、同一业务操作的三种实现（⭐ 核心）
+
+### 6.1 示例：启用Ingress
+
+**前端操作**：
+```typescript
+{
+  action: "set_ingress_enabled",
+  value: {
+    enabled: true,
+    host: "demo.example.com"
+  }
+}
+```
+
+**Raw Kubernetes实现**：
+```python
+# 创建或修改 ingress.yaml
+ingress = {
+    'apiVersion': 'networking.k8s.io/v1',
+    'kind': 'Ingress',
+    'metadata': {'name': 'demo-app'},
+    'spec': {
+        'rules': [{
+            'host': 'demo.example.com',
+            'http': {
+                'paths': [{
+                    'path': '/',
+                    'pathType': 'Prefix',
+                    'backend': {
+                        'service': {
+                            'name': 'demo-app',
+                            'port': {'number': 80}
+                        }
+                    }
+                }]
+            }
+        }]
+    }
+}
+```
+
+**Helm实现**：
+```yaml
+# values.yaml
+ingress:
+  enabled: true
+  hosts:
+    - host: demo.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+```
+
+**Kustomize实现**：
+```yaml
+# kustomization.yaml
+components:
+  - components/ingress
+
+# components/ingress/kustomization.yaml
+resources:
+  - ingress.yaml
+
+# components/ingress/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app
+spec:
+  rules:
+    - host: demo.example.com
+      # ...
+```
+
+**后端路由逻辑**：
+```python
+async def handle_set_ingress_enabled(request: ChangeRequest):
+    app_config = await load_app_config(request.application)
+    
+    if app_config.configType == "raw-kubernetes":
+        adapter = RawKubernetesAdapter()
+        await adapter.create_or_update_ingress(...)
+    
+    elif app_config.configType == "helm-values":
+        adapter = HelmValuesAdapter(app_config.valuesSchema)
+        await adapter.set_ingress_enabled(...)
+    
+    elif app_config.configType == "kustomize":
+        adapter = KustomizeAdapter()
+        await adapter.enable_component("ingress")
+```
+
+### 6.2 示例：更新镜像
+
+| 配置类型 | 修改位置 | 修改内容 |
+|----------|----------|----------|
+| Raw Kubernetes | `deployment.yaml` | `spec.template.spec.containers[0].image` |
+| Helm | `values.yaml` | `image.tag: 20260616-abc123` |
+| Kustomize | `kustomization.yaml` | `images[].newTag: 20260616-abc123` |
+
+**关键**：前端只提交`update_image`操作，后端根据配置类型自动选择实现方式。
+
+---
+
+## 七、单体应用实现（M1）
 
 ### 6.1 配置模型
 
@@ -694,24 +1227,219 @@ class YamlChangeEngine:
 
 ## 总结
 
-### ✅ M1核心原则
+### ✅ M1核心原则（更新）
 
-1. **结构化修改，不是字符串替换**
-2. **业务动作 + 通用Patch，双层架构**
-3. **先支持单体，设计兼容微服务**
-4. **修改前后都要校验**
-5. **受控操作列表，不开放任意路径**
+1. **前端暴露业务开关，不是YAML编辑器**
+2. **Schema驱动表单渲染**
+3. **结构化修改，不是字符串替换**
+4. **业务动作 + 通用Patch，双层架构**
+5. **三种适配器：Raw/Helm/Kustomize**
+6. **先支持单体RawKubernetes，预留Helm/Kustomize扩展**
+7. **修改前后都要校验**
+8. **受控操作列表，不开放任意路径**
 
 ### ⚠️ M1明确不做
 
+**前端侧**：
+1. ❌ 任意YAML编辑器（作为主路径）
+2. ❌ 让用户输入YAML path
+3. ❌ 直接传YAML内容给后端
+4. ❌ 绕过策略的"专家模式"
+
+**后端侧**：
 1. ❌ 字符串替换、正则替换
 2. ❌ 允许任意YAML路径修改
 3. ❌ LLM直接生成YAML
 4. ❌ 修改selector、serviceAccount、namespace
 5. ❌ 所有环境共用同一套配置
 
-### 🚀 实施顺序
+### 🚀 实施顺序（更新）
 
-**Week 1**: RawKubernetesAdapter + update_image  
-**Week 2**: add_env / update_env / remove_env / set_replicas  
+**Week 1 (Day 3)**: 
+- RawKubernetesAdapter基础框架
+- update_image操作
+- 配置Schema加载器
+- 基础校验逻辑
+
+**Week 2**: 
+- add_env / update_env / remove_env
+- set_replicas
+- 前端Schema API
+- 结构化diff生成
+
+**M2**: 
+- HelmValuesAdapter
+- KustomizeAdapter
+- 前端配置面板
+- 高级模式（diff预览）
+- 更多业务操作（Ingress、ConfigMap等）
+
+---
+
+## 十二、当前测试项目确认 ⚠️
+
+### 需要确认的问题
+
+**你的测试项目使用哪种配置方式？**
+
+- [ ] **A. 原生Kubernetes YAML**（直接修改Deployment.yaml）
+- [ ] **B. Helm values.yaml**
+- [ ] **C. Kustomize kustomization.yaml**
+- [ ] **D. 混合使用**
+
+### 根据不同类型的实施建议
+
+**如果是A（原生Kubernetes YAML）**：
+```
+✅ 最适合M1快速验证
+✅ 直接使用RawKubernetesAdapter
+✅ 配置示例：
+   configType: raw-kubernetes
+   configFile: apps/demo-app/deployment.yaml
+```
+
+**如果是B（Helm）**：
+```
+⚠️ 需要先定义values schema
+✅ 可以先用RawKubernetesAdapter修改渲染后的YAML
+✅ M2再切换到HelmValuesAdapter
+✅ 配置示例：
+   configType: helm-values
+   valuesFile: environments/dev/values.yaml
+   valuesSchema: config/schemas/demo-app-helm.yaml
+```
+
+**如果是C（Kustomize）**：
+```
+⚠️ 需要理解overlay结构
+✅ 可以先用RawKubernetesAdapter修改base
+✅ M2再切换到KustomizeAdapter
+✅ 配置示例：
+   configType: kustomize
+   kustomizationFile: overlays/dev/kustomization.yaml
+```
+
+### M1推荐路径
+
+**不管测试项目当前使用什么，M1都建议**：
+1. 先用RawKubernetesAdapter
+2. 只实现update_image操作
+3. 验证完整链路可行性
+4. Week 2再扩展其他操作
+5. M2再根据实际需求切换适配器
+
+**原因**：
+- RawKubernetesAdapter最直接，调试容易
+- 可以快速验证GitOps流程
+- 即使项目用Helm/Kustomize，也可以先修改渲染后的YAML
+- 等核心流程稳定后再切换到对应适配器
+
+---
+
+## 十三、M1实施检查清单（更新）
+
+### Week 1 Day 3完成后
+
+**配置Schema**：
+- [ ] 创建`config/schemas/`目录
+- [ ] 编写测试应用的schema（至少包含update_image）
+- [ ] 实现Schema加载器
+
+**RawKubernetesAdapter**：
+- [ ] 实现基础框架
+- [ ] 实现`update_image`操作
+- [ ] YAML解析和保存逻辑
+- [ ] 资源定位（kind + name）
+- [ ] 容器定位（container name）
+
+**校验逻辑**：
+- [ ] 修改前校验（文件存在、可解析、权限）
+- [ ] 修改后校验（仍可解析、只改了镜像字段）
+- [ ] Git提交信息生成
+
+### Week 2完成后
+
+**更多操作**：
+- [ ] `add_env`（含唯一性检查）
+- [ ] `update_env`
+- [ ] `remove_env`
+- [ ] `set_replicas`
+
+**前端支持**：
+- [ ] Schema API：`GET /api/v1/schemas/{app_name}`
+- [ ] 配置API：`GET /api/v1/configs/{app_name}/{env}`
+- [ ] 变更API：`POST /api/v1/changes`
+- [ ] Diff预览API：`POST /api/v1/changes/preview`
+
+**审计和安全**：
+- [ ] 所有变更操作记录到数据库
+- [ ] 操作者身份记录
+- [ ] 环境策略校验
+- [ ] 并发控制（同应用同环境串行）
+
+### M2规划
+
+**Helm支持**：
+- [ ] HelmValuesAdapter实现
+- [ ] values schema定义规范
+- [ ] Helm template渲染验证
+
+**Kustomize支持**：
+- [ ] KustomizeAdapter实现
+- [ ] patch文件管理
+- [ ] component启用/禁用
+
+**前端配置面板**：
+- [ ] 基于Schema动态渲染表单
+- [ ] 开关、输入框、选择器
+- [ ] 环境变量表格
+- [ ] 变更diff预览
+- [ ] 高级模式（YAML只读预览）
+
+---
+
+## 十四、方案对比总结
+
+### 推荐方案：业务操作 + Adapter + Schema ✅
+
+**优点**：
+- 兼容Raw/Helm/Kustomize
+- 前端可以做开关和表单
+- 权限、审计、审批容易落地
+- 单体和微服务复用同一套引擎
+
+**缺点**：
+- 前期需要定义action和schema
+- 每个应用需要注册配置
+
+**适用场景**：M1和长期方案
+
+### 备选方案：直接YAML Patch ⚠️
+
+**优点**：
+- 实现快
+- 任何YAML都能改
+
+**缺点**：
+- 安全风险高（任意路径）
+- Helm/Kustomize不好抽象
+- 难以控制权限和审批
+
+**适用场景**：临时方案，不推荐
+
+### 备选方案：全部Helm化 ⚠️
+
+**优点**：
+- 前端表单到values映射最清楚
+
+**缺点**：
+- 要求所有项目改造为Helm
+- 对现有Raw/Kustomize项目不友好
+- M1推进成本高
+
+**适用场景**：新项目或全Helm组织
+
+---
+
+**最终推荐：业务操作 + Adapter + Schema，M1先用RawKubernetesAdapter验证流程**
 **M2**: KustomizeAdapter / HelmValuesAdapter / 新增资源 / 删除资源
