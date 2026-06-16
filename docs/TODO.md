@@ -8,11 +8,14 @@
 
 ## 📊 总体进度（v1.1调整）
 
+- [ ] Week 0: 前置准备（权限与凭证）(0/7) ⚠️ **必须先完成**
 - [ ] Week 1: 基础设施 + Pipeline Orchestrator (0/5)
 - [ ] Week 2: 诊断引擎 + 飞书通知 (0/7)
 - [ ] Week 3: API + 失败场景测试 + 交付 (0/5)
 
-**完成率**：0% (0/17)
+**完成率**：0% (0/24)
+
+**⚠️ 重要提醒**：Week 0的权限准备是Week 1的阻塞任务，必须先完成！
 
 ---
 
@@ -32,6 +35,55 @@
 - [ ] LLM诊断准确率 > 85%
 - [ ] API响应时间 < 500ms
 - [ ] 失败场景降级策略生效
+
+---
+
+## Week 0: 前置准备（权限与凭证）⚠️
+
+**必须在Week 1 Day 1前完成**
+
+### 必须准备的凭证
+
+- [ ] **Git机器人账号**
+  - [ ] 创建机器人账号（如fde-bot@company.com）
+  - [ ] 生成SSH Key或Personal Access Token
+  - [ ] 授予dev环境配置仓库写权限
+  - [ ] 授予staging/prod配置仓库创建MR权限
+
+- [ ] **ArgoCD低权限Token**
+  - [ ] 创建ArgoCD本地账号（fde-pipeline）
+  - [ ] 配置RBAC（只读Application + dev环境同步）
+  - [ ] 生成Token（90天过期）
+  - [ ] 验证权限正确（不能操作staging/prod）
+
+- [ ] **K8s ServiceAccount**
+  - [ ] 创建ServiceAccount（fde-diagnosis）
+  - [ ] 创建Role（只读Pod/日志/Events/Deployment）
+  - [ ] 绑定RoleBinding（每个环境独立）
+  - [ ] 验证权限最小化
+
+- [ ] **Tekton Webhook配置**
+  - [ ] 配置Tekton EventListener
+  - [ ] 生成Webhook Secret
+  - [ ] 测试回调URL可达
+
+- [ ] **飞书应用**
+  - [ ] 创建飞书应用
+  - [ ] 获取App ID和App Secret
+  - [ ] 配置Webhook回调地址
+  - [ ] 配置签名验证Token
+
+- [ ] **LLM API Key**
+  - [ ] 获取Claude Opus 4.7 API Key
+  - [ ] 配置成本限制
+  - [ ] 测试API可用性
+
+- [ ] **配置映射文件**
+  - [ ] 编写app-mappings.yaml（应用到Git/ArgoCD/K8s/飞书的映射）
+  - [ ] 编写环境策略配置
+  - [ ] 验证所有应用都有完整映射
+
+**验收**：所有凭证已存储到K8s Secret，权限已验证最小化
 
 ---
 
