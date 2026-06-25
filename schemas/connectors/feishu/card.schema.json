@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/connectors/feishu/card.schema.json",
+  "title": "FeishuSendCardInput",
+  "type": "object",
+  "required": ["mode", "target_type", "target_id", "card_type", "title", "summary", "severity", "data", "correlation_id", "trace_id", "run_id"],
+  "additionalProperties": false,
+  "properties": {
+    "mode": { "type": "string", "enum": ["webhook_bot", "openapi_bot"] },
+    "target_type": { "type": "string", "enum": ["chat", "group", "user"] },
+    "target_id": { "type": "string", "minLength": 1 },
+    "mentions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "enum": ["user", "group"] },
+          "id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "card_type": {
+      "type": "string",
+      "enum": ["environment_scan_report", "diagnosis_notification", "pipeline_build_notification", "mr_review_report", "escalation_notice", "daily_report", "custom"]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "enum": ["open_url", "acknowledge", "claim", "mark_fixed", "escalate", "open_artifact"] },
+          "label": { "type": "string" },
+          "url": { "type": "string" },
+          "value": { "type": "string" }
+        }
+      }
+    },
+    "data": { "type": "object" },
+    "correlation_id": { "type": "string" },
+    "trace_id": { "type": "string" },
+    "run_id": { "type": "string" }
+  }
+}

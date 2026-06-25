@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/agent-runtime/tool-result.schema.json",
+  "title": "ToolResult",
+  "type": "object",
+  "required": ["name", "success"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "success": { "type": "boolean" },
+    "output": {},
+    "error": { "$ref": "../common/error.schema.json" }
+  }
+}

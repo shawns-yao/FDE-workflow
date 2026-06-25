@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/runtime-policy.schema.json",
+  "title": "RuntimePolicy",
+  "type": "object",
+  "required": ["environment", "timeout_ms", "max_tool_calls", "max_tokens", "retry_count"],
+  "additionalProperties": false,
+  "properties": {
+    "environment": { "$ref": "environment.schema.json" },
+    "timeout_ms": { "type": "integer", "minimum": 1 },
+    "max_tool_calls": { "type": "integer", "minimum": 0 },
+    "max_tokens": { "type": "integer", "minimum": 1 },
+    "retry_count": { "type": "integer", "minimum": 0 }
+  }
+}

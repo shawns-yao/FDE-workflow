@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/compliance/environment-scan-request.schema.json",
+  "title": "EnvironmentScanRequest",
+  "type": "object",
+  "required": ["scan_id", "trigger", "environment", "mode", "targets", "required_layers", "correlation_id", "trace_id", "run_id"],
+  "additionalProperties": false,
+  "properties": {
+    "scan_id": { "type": "string", "minLength": 1 },
+    "trigger": { "type": "string", "enum": ["scheduled", "manual", "preflight", "event"] },
+    "environment": { "$ref": "../common/environment.schema.json" },
+    "mode": { "type": "string", "enum": ["full", "fast", "targeted"] },
+    "targets": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["gitlab", "tekton", "argocd", "kubernetes"] }
+    },
+    "required_layers": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["connectivity", "permission", "configuration"] }
+    },
+    "correlation_id": { "type": "string" },
+    "trace_id": { "type": "string" },
+    "run_id": { "type": "string" }
+  }
+}

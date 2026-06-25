@@ -1,0 +1,5 @@
+{
+  "name": "ci-readonly",
+  "tools": ["read_file", "list_files", "run_command", "read_artifact", "write_artifact", "validate_schema"],
+  "command_allowlist": ["rg", "git diff", "git show", "git status"]
+}

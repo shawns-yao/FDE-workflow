@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/events/dead-letter-event.schema.json",
+  "title": "DeadLetterEvent",
+  "type": "object",
+  "required": ["event", "consumer_id", "queue_name", "failed_at", "reason_code", "error"],
+  "additionalProperties": false,
+  "properties": {
+    "event": { "$ref": "cloudevent.schema.json" },
+    "consumer_id": { "type": "string", "minLength": 1 },
+    "queue_name": { "type": "string", "minLength": 1 },
+    "failed_at": { "type": "string", "format": "date-time" },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "error": { "$ref": "../common/error.schema.json" },
+    "raw_event_artifact_uri": { "type": "string" }
+  }
+}

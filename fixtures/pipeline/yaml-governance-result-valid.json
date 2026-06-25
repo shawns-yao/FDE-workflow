@@ -1,0 +1,9 @@
+{
+  "approved": true,
+  "risk_level": "low",
+  "summary": "Only the api-gateway dev image tag changed.",
+  "changed_files_reviewed": ["api-gateway/dev.yaml"],
+  "findings": [],
+  "required_fixes": [],
+  "auto_fixed": []
+}

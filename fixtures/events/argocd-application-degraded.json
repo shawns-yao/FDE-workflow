@@ -1,0 +1,22 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0301",
+  "source": "argocd",
+  "type": "argocd.application.degraded",
+  "subject": "application/api-gateway",
+  "time": "2026-06-17T08:10:00Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0301",
+  "trace_id": "trace-20260617-0301",
+  "run_id": "run-20260617-0301",
+  "application": "api-gateway",
+  "environment": "test",
+  "data": {
+    "argocd_application": "api-gateway",
+    "health_status": "Degraded",
+    "sync_status": "Synced"
+  },
+  "metadata": {
+    "upstream_id": "argocd-api-gateway-degraded"
+  }
+}

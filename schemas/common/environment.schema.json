@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/environment.schema.json",
+  "title": "Environment",
+  "type": "string",
+  "enum": ["dev", "test", "prod"]
+}

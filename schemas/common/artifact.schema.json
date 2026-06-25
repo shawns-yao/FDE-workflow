@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/artifact.schema.json",
+  "title": "ArtifactRef",
+  "type": "object",
+  "required": ["artifact_uri", "artifact_type", "content_type"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_uri": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_type": {
+      "type": "string",
+      "enum": [
+        "raw_event_payload",
+        "normalized_event",
+        "tool_trace",
+        "agent_task_input",
+        "agent_task_result",
+        "diagnosis_context",
+        "diagnosis_result",
+        "notification_card",
+        "yaml_audit_report",
+        "code_review_report",
+        "build_repair_report",
+        "environment_check_report",
+        "patch",
+        "diff",
+        "dead_letter_event",
+        "delivery_attempt_log"
+      ]
+    },
+    "content_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "excerpt": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/events/argocd-event.schema.json",
+  "title": "ArgoCDEventData",
+  "type": "object",
+  "additionalProperties": true
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/connectors/feishu/callback.schema.json",
+  "title": "FeishuCallbackEvent",
+  "type": "object",
+  "required": ["type", "message_id", "raw_callback_excerpt", "correlation_id", "trace_id", "run_id"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "type": "string", "enum": ["feishu.card.action_clicked", "feishu.message.replied"] },
+    "message_id": { "type": "string" },
+    "action": { "type": "object" },
+    "operator": { "type": "string" },
+    "raw_callback_excerpt": { "type": "string" },
+    "correlation_id": { "type": "string" },
+    "trace_id": { "type": "string" },
+    "run_id": { "type": "string" }
+  }
+}

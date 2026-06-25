@@ -1,0 +1,11 @@
+{
+  "scan_id": "env-scan-20260617-0001",
+  "trigger": "scheduled",
+  "environment": "test",
+  "mode": "full",
+  "targets": ["gitlab", "tekton", "argocd", "kubernetes"],
+  "required_layers": ["connectivity", "permission", "configuration"],
+  "correlation_id": "corr-20260617-0001",
+  "trace_id": "trace-20260617-0001",
+  "run_id": "run-20260617-0001"
+}

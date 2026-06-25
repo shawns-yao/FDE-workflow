@@ -1,0 +1,24 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0201",
+  "source": "tekton",
+  "type": "tekton.pipelinerun.completed",
+  "subject": "namespace/dev/pipelinerun/api-gateway-001",
+  "time": "2026-06-17T08:05:00Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0201",
+  "trace_id": "trace-20260617-0201",
+  "run_id": "run-20260617-0201",
+  "application": "api-gateway",
+  "environment": "dev",
+  "data": {
+    "pipeline_run_name": "api-gateway-001",
+    "namespace": "dev",
+    "status": "succeeded",
+    "image_name": "registry.local/api-gateway",
+    "image_tag": "v1.2.3"
+  },
+  "metadata": {
+    "upstream_id": "tekton-dev-api-gateway-001"
+  }
+}

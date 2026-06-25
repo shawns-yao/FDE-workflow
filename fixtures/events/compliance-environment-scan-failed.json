@@ -1,0 +1,27 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0002",
+  "source": "compliance",
+  "type": "compliance.environment.scan.failed",
+  "subject": "environment/test",
+  "time": "2026-06-17T08:01:20Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0002",
+  "trace_id": "trace-20260617-0002",
+  "run_id": "run-20260617-0002",
+  "application": "platform",
+  "environment": "test",
+  "data": {
+    "scan_id": "env-scan-20260617-0002",
+    "environment": "test",
+    "result_kind": "environment_unhealthy",
+    "overall_status": "warning",
+    "affected_targets": ["argocd"],
+    "critical_count": 0,
+    "warning_count": 1,
+    "report_artifact_uri": "artifacts/compliance/env-scan-20260617-0002/environment-check-report.json"
+  },
+  "metadata": {
+    "adapter_version": "compliance-radar-v1"
+  }
+}

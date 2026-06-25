@@ -1,0 +1,25 @@
+{
+  "task_id": "task-20260617-0002",
+  "agent_type": "pipeline",
+  "business_task_type": "yaml_governance",
+  "runtime_capability": "code_task",
+  "runtime_type": "code_runtime",
+  "workspace_ref": "workspaces/api-gateway",
+  "context_refs": ["artifacts/runs/run-20260617-0002/context.json"],
+  "prompt_ref": "prompts/pipeline/yaml-governance.md",
+  "schema_ref": "schemas/agent-runtime/agent-task-result.schema.json",
+  "permission_profile": "ci-yaml-edit",
+  "runtime_policy": {
+    "environment": "test",
+    "timeout_ms": 60000,
+    "max_tool_calls": 10,
+    "max_tokens": 4000,
+    "retry_count": 1
+  },
+  "allowed_tools": ["read_file", "edit_file", "write_file", "list_files", "run_command", "create_patch", "read_artifact", "write_artifact", "validate_schema"],
+  "model": "configured-model",
+  "output_format": "json",
+  "correlation_id": "corr-20260617-0002",
+  "trace_id": "trace-20260617-0002",
+  "run_id": "run-20260617-0002"
+}

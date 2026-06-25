@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/agent-runtime/agent-task.schema.json",
+  "title": "AgentTask",
+  "type": "object",
+  "required": [
+    "task_id",
+    "agent_type",
+    "business_task_type",
+    "runtime_capability",
+    "runtime_type",
+    "context_refs",
+    "prompt_ref",
+    "schema_ref",
+    "permission_profile",
+    "runtime_policy",
+    "allowed_tools",
+    "model",
+    "output_format",
+    "correlation_id",
+    "trace_id",
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "agent_type": { "type": "string", "enum": ["pipeline", "diagnosis", "collaboration"] },
+    "business_task_type": {
+      "type": "string",
+      "enum": ["mr_review", "yaml_governance", "build_fix", "log_triage", "root_cause", "notification", "progress_tracking", "daily_report"]
+    },
+    "runtime_capability": { "type": "string", "enum": ["code_task", "analysis_task", "repair_task"] },
+    "runtime_type": { "type": "string", "enum": ["code_runtime", "claude_api"] },
+    "workspace_ref": { "type": "string" },
+    "context_refs": { "type": "array", "items": { "type": "string" } },
+    "artifact_refs": {
+      "type": "array",
+      "items": { "$ref": "../common/artifact.schema.json" }
+    },
+    "prompt_ref": { "type": "string", "minLength": 1 },
+    "schema_ref": { "type": "string", "minLength": 1 },
+    "permission_profile": { "type": "string", "enum": ["ci-readonly", "ci-yaml-edit", "diagnosis-readonly", "collaboration-notify"] },
+    "runtime_policy": { "$ref": "../common/runtime-policy.schema.json" },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "read_file",
+              "edit_file",
+              "write_file",
+              "list_files",
+              "run_command",
+              "git_diff",
+              "git_show",
+              "git_status",
+              "read_artifact",
+              "write_artifact",
+              "create_patch",
+              "attach_evidence",
+              "summarize_log",
+              "classify_reply",
+              "draft_notification",
+              "reason_about_failure",
+              "validate_schema",
+              "check_permission",
+              "redact_sensitive_fields",
+              "record_tool_trace"
+            ]
+          },
+          {
+            "type": "string",
+            "pattern": "^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$"
+          }
+        ]
+      }
+    },
+    "model": { "type": "string", "minLength": 1 },
+    "output_format": { "type": "string", "enum": ["json", "text"] },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 }
+  }
+}

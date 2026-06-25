@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/id.schema.json",
+  "title": "FdeId",
+  "type": "string",
+  "pattern": "^(evt|corr|trace|run|task|scan|artifact|diagnosis|notification|consumer|delivery)-[A-Za-z0-9_.:-]+$"
+}
