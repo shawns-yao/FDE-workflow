@@ -1,346 +1,416 @@
+# FDE Workstation M1 实施计划
 
-FDE Workstation 里程碑一开发计划
+**日期**：2026-06-17  
+**状态**：实施计划，按三 Agent + 底座先行方向校准  
+**周期**：3 周  
+**配套设计**：`docs/architecture/fde-platform-m1-design.md`  
+**配套契约**：`docs/architecture/fde-platform-m1-contracts.md`
 
-里程碑周期: 3周（MVP验证期） 
+---
 
-目标: 以公司内部运维CI/CD提效需求为实践抓手，交付FDE Workstation MVP + 运维提效Agent，验证"平台+FDE"模式的可行性
+## 1. 本文定位
 
-## 一、里程碑目标（Milestone Goals）
+本文是 M1 的可执行实施计划。M1 目标从"自建重型服务化平台"调整为"底座先行的三 Agent 智能 CI/CD 系统"。截图中的 W1-T3 到 W2-T8 是 M1 的核心排期来源。
 
-### 1.1 业务目标
+核心原则：
 
-### 1.2 产品目标
+```text
+确定性链路不替换
+AI 能力按节点增强
+Pipeline 就是业务 Agent，内部包含确定性执行和 AI 增强
+FDE code_runtime 只在 CI / Tekton 工作区内操作代码和配置
+Claude API 只在后端诊断和协同链路中做语义分析和内容生成
+底座契约先定，不能为了最小 MVP 省略事件、Runtime、Artifact、Schema、IM 边界
+Redis Streams 作为事件总线，提供可靠投递能力
+```
 
-## 二、运维场景深度分析
+---
 
-### 2.1 现状流程图（As-Is）
+## 2. M1 目标
 
-开发者推送代码 → GitLab → Tekton自动构建镜像 → [人工卡点1] → 
+### 2.1 平台目标
 
-运维同学手动复制镜像名 → 打开CI/CD配置仓库 → 修改YAML中的镜像标签 → 
+建立一套可复用的三 Agent 底座，包含 Redis Streams 事件总线、IM 连接器、Agent Runtime、GitLab CI 模板、Tekton Task 模板、prompt、schema、诊断输出和飞书通知规范。
 
-提交PR/MR → ArgoCD检测到配置变更 → 自动同步部署 → 
+M1 不要求第一批代码就实现重型 PostgreSQL / outbox / worker / 前端工作台，但 Redis Streams 事件总线、事件信封、任务 schema、artifact 和后续可持久化的数据结构必须先设计好。
 
-[人工卡点2] 部署失败/异常 → 开发在群里@运维 → 运维查看ArgoCD日志 → 
+### 2.2 业务目标
 
-看不懂/需要开发协助 → 开发查看代码 → 本地修复验证提交代码 → 重新推送 → 
+跑通以下智能增强闭环：
 
-回到起点，循环3-5轮 → 最终上线
+```text
+GitLab 提交代码
+  -> 事件进入 Redis Streams 事件总线
+  -> Pipeline Agent 消费事件，触发 Tekton 构建
+  -> 构建完成自动更新 GitOps YAML 镜像 tag
+  -> YAML Governance Agent 做配置审计与修复
+  -> ArgoCD 同步
+  -> K8s / ArgoCD / Tekton 异常事件进入事件总线
+  -> Diagnosis Agent 消费事件，三层漏斗诊断
+  -> Collaboration Agent 消费事件，通知、追踪、升级、日报
+```
 
-总耗时: 简单更新30分钟-2小时，复杂问题半天到3天
+### 2.3 验证目标
 
-人工交互: 5-10轮（开发↔运维）
+用可查看的 CI artifact、Tekton Task 输出、诊断 JSON 和飞书卡片证明 AI 在流水线、诊断和协同三个节点产生实际价值。
 
-出错点: 镜像名复制错误、YAML格式错误、资源竞态错误、服务依赖错误、分支配置错误、漏更新关联服务
+---
+
+## 3. 任务映射
 
-### 2.2 痛点优先级矩阵
+### 3.1 Week 1：底座 + Pipeline Agent
 
-### 2.3 用户角色（内部客户）
+| 任务 | 名称 | AI 载体 | 交付物 | 落地位置 |
+| --- | --- | --- | --- | --- |
+| W1-T1 | 环境与权限准备 | 无 | 凭据占位符和权限清单 | `docs/architecture/external-system-access-requirements.md` |
+| W1-T2 | 仓库基础结构 | 无 | 底座目录结构和 schema 目录 | `src/`、`schemas/` |
+| W1-T3 | 共享基础设施：Redis Streams 事件总线 + IM 连接器 | 无 | Redis Streams 事件总线 + IM 连接器 | `src/events/`、`src/connectors/feishu/` |
+| W1-T4 | 合规检测雷达 | 确定性检测 | 环境检测报告 | `src/radars/compliance/` |
+| W1-T5 | Pipeline Agent 核心开发：Tekton 事件监听 | 无 | Pipeline Agent v0.1 | 待定 |
+| W1-T6 | Pipeline Agent：GitLab 配置仓库自动更新 | code_runtime 增强 | YAML 自动更新模块 + YAML Governance Agent | 待定 |
+| W1-T7 | Pipeline Agent：ArgoCD 同步触发 | 无 / code_runtime 前置校验 | ArgoCD 触发模块 | 待定 |
+| W1-T8 | 现场作战背包：日志速析器 | Claude API 可选 | 日志速析器 v0.1 | 待定 |
 
-## 三、解决方案设计：运维提效Agent Trio
+### 3.2 Week 2：Diagnosis Agent + Collaboration Agent
 
-### 3.1 三Agent架构
+| 任务 | 名称 | AI 载体 | 交付物 | 落地位置 |
+| --- | --- | --- | --- | --- |
+| W2-T1 | Diagnosis Agent：ArgoCD 状态监听 | 无 | 状态监听模块 | 待定 |
+| W2-T2 | Diagnosis Agent：K8s 事件和日志收集 | 无 | 数据收集模块 | 待定 |
+| W2-T3 | Diagnosis Agent：根因分析引擎（规则 + LLM） | Claude API | 诊断引擎 v0.1 | 待定 |
+| W2-T4 | 现场作战背包：API 契约生成器 | code_runtime / Claude API | API 契约生成器 v0.1 | 待定 |
+| W2-T5 | 知识库搭建：诊断经验沉淀结构 | Claude API 可选 | 知识库 Schema | 待定 |
+| W2-T6 | Collaboration Agent：智能路由和通知 | Claude API | 通知路由模块 | 待定 |
+| W2-T7 | Collaboration Agent：进度追踪和升级 | Claude API | 追踪模块 | 待定 |
+| W2-T8 | Collaboration Agent：日报生成 | Claude API | 日报生成器 | 待定 |
 
-┌─────────────────────────────────────────────────────────────┐
+### 3.3 Week 3：联调与收敛
 
-│                  运维提效Agent Trio                          │
+| 任务 | 名称 | 交付物 |
+| --- | --- | --- |
+| W3-T1 | GitLab MR 联调 | MR 语义评审 artifact |
+| W3-T2 | Tekton 链路联调 | YAML audit report 和 diff |
+| W3-T3 | 诊断链路联调 | 结构化诊断 JSON |
+| W3-T4 | 飞书链路联调 | 通知卡片、升级提醒、日报 |
+| W3-T5 | 复盘和 M2 规划 | 交付说明、平台增强判断 |
 
-├─────────────────────────────────────────────────────────────┤
+---
 
-│                                                             │
+## 4. 底座任务与验收
 
-│  ┌──────────────────┐    ┌──────────────────┐              │
+### 4.1 W1-T3 共享基础设施：Redis Streams 事件总线 + IM 连接器
+
+功能：
+
+```text
+实现 Redis Streams 事件总线（EventBroker 接口 + RedisStreamsEventBroker）
+提供可靠投递、消费组、ACK、死信能力
+定义 CloudEvents 事件信封
+统一 GitLab、Tekton、ArgoCD、K8s、Feishu 事件格式
+提供飞书消息发送、@人、按钮、升级通知边界
+为 Pipeline / Diagnosis / Collaboration 三 Agent 提供统一事件和协同入口
+```
+
+验收：
+
+```text
+EventBroker 接口已定义，包含 publish、subscribe、ack、nack、publishDeadLetter
+RedisStreamsEventBroker 已实现，支持消费组和 ACK
+CloudEvents schema 已定义
+GitLab / Tekton / ArgoCD / K8s / Feishu 事件样例可映射到统一信封
+IM 连接器 schema 已定义
+飞书通知卡片和升级通知输入输出已定义
+MemoryEventBroker 已实现，用于测试环境
+```
+
+### 4.2 Agent Runtime 底座
+
+功能：
+
+```text
+定义 code_runtime 和 claude_api runtime
+支持按 runtime_capability 分派独立执行器
+统一 prompt、schema、artifact、错误结构、超时、限流和审计摘要
+明确 cc 参考源码使用规则：不直接修改 cc，在 FDE 自有目录实现 runtime
+```
+
+验收：
+
+```text
+agent-task schema 已定义
+code_runtime 与 claude_api 的输入输出契约已定义
+ExecutorMap 已实现，支持 code_task / analysis_task / repair_task 分派
+权限 profile 已定义（ci-readonly、ci-yaml-edit、diagnosis-readonly、collaboration-notify）
+命令白名单安全校验已实现
+cc 参考源码使用边界已写入文档
+```
+
+### 4.3 公共契约
+
+功能：
+
+```text
+定义时间有序 ID 生成（类 UUID v7 结构）
+定义错误码与状态映射
+定义 ArtifactStore 路径安全
+定义敏感字段脱敏规则
+```
+
+验收：
+
+```text
+createId 生成时间有序 ID（base36 时间戳 + hex 随机部分）
+错误码列表包含所有必需码（含 COMMAND_EXECUTION_FAILED、COMMAND_TIMEOUT）
+ArtifactStore 路径逃逸检查已加固
+redact 正则已预编译优化
+```
+
+---
+
+## 5. 任务功能与验收
+
+### 5.1 W1-T4 合规检测雷达
 
-│  │  Pipeline Agent  │───→│  Diagnosis Agent │              │
+功能：
 
-│  │  (管道代理)       │    │  (诊断代理)       │              │
+```text
+扫描内部环境 API 可用性
+检查 GitLab 认证、项目读取和 Pipeline 读取
+检查 Tekton 命名空间、PipelineRun 和 TaskRun 读取
+检查 ArgoCD 认证、Application 读取和同步权限探测
+检查 K8s Namespace、Deployment、Pod、Event 只读访问
+输出环境检测 JSON 和 Markdown 报告
+```
 
-│  │                  │    │                  │              │
+验收：
+
+```text
+GitLab / Tekton / ArgoCD / K8s API 全部连通时状态为 passed
+任一目标失败时总状态不得为 passed
+报告包含 target、check、status、latency_ms、error_code、error_message
+凭据未就绪时可使用 mock connector，但报告必须标记 mock_mode
+```
 
-│  │ • 监听Tekton事件  │    │ • 监听ArgoCD状态  │              │
+### 5.2 W1-T5 Pipeline Agent：Tekton 事件监听
 
-│  │ • 自动更新YAML   │    │ • 收集K8s事件     │              │
+功能：
 
-│  │ • 触发ArgoCD同步 │    │ • 日志聚合分析    │              │
+```text
+监听 Tekton 构建完成事件
+提取镜像名、Tag、构建状态和日志地址
+转换为 CloudEvents 信封
+为后续 YAML 更新和诊断链路提供标准输入
+```
 
-│  │ • 通知相关人员   │    │ • 根因定位        │              │
+验收：
 
-│  └──────────────────┘    │ • 修复建议生成    │              │
+```text
+能识别 Tekton PipelineRun 完成事件
+能提取镜像名和 tag
+能输出标准事件 JSON
+```
 
-│           │              └──────────────────┘              │
+### 5.3 W1-T6 YAML 自动更新 + 智能校验
 
-│           │                      │                         │
+功能：
 
-│           └──────────────────────┘                         │
+```text
+确定性脚本更新镜像 tag
+code_runtime 读取更新后的 YAML
+检查 resources、probe、安全上下文、标签、环境变量和镜像 tag
+低风险问题生成 diff，高风险只输出建议
+```
 
-│                      │                                      │
+验收：
 
-│                      ↓                                      │
+```text
+可输出 yaml-audit-report.md
+可输出 yaml diff
+dev / test 可按策略提交低风险修改
+prod 不自动提交
+```
 
-│           ┌──────────────────┐                            │
+### 5.4 W1-T8 日志速析器
 
-│           │  Collaboration   │                            │
+功能：
 
-│           │  Agent (协作代理) │                            │
+```text
+把 K8s Events、Pod logs、ArgoCD 状态整理为诊断输入
+先用规则匹配常见错误
+规则不足时调用 Claude API
+输出标准诊断 JSON
+```
 
-│           │                  │                            │
+验收：
 
-│           │ • 汇总问题状态   │                            │
+```text
+能识别 ImagePullBackOff、CrashLoopBackOff、配置错误、依赖错误
+诊断结果包含 evidence_refs
+Claude API 不可用时返回 fallback_rule 结果
+```
+
+### 5.5 W2-T3 根因分析引擎
 
-│           │ • 自动分配责任人 │                            │
+功能：
 
-│           │ • 推送通知到IM   │                            │
+```text
+Context Builder 压缩和结构化 ArgoCD / K8s / Tekton 证据
+第一层规则引擎覆盖常见故障
+第二层知识库匹配历史案例
+第三层 Claude API 做复杂根因推理
+```
+
+验收：
 
-│           │ • 追踪修复进度   │                            │
-
-│           │ • 生成日报/周报  │                            │
-
-│           └──────────────────┘                            │
-
-│                                                             │
-
-└─────────────────────────────────────────────────────────────┘
-
-### 3.2 Agent 1: Pipeline Agent（管道代理）
-
-职责：打通Tekton → GitLab配置仓库 → ArgoCD的自动化链路
-
-工作流：
-
-1. 监听Tekton PipelineRun完成事件（通过Tekton EventListener或轮询）
-
-2. 提取新构建的镜像名称和Tag（如: registry.company.com/app:v1.2.3-abc123）
-
-3. 自动克隆/更新CI/CD专属GitLab配置仓库
-
-4. 根据规则定位需要更新的YAML文件（支持Kustomize/Helm/纯YAML）
-
-5. 自动修改镜像标签，生成Git Commit（含构建信息、提交者、变更摘要）
-
-6. 自动Push到配置仓库（直接提交或创建MR，根据策略）
-
-7. 可选：自动触发ArgoCD Application同步（通过ArgoCD API）
-
-8. 通知：向飞书推送"构建→部署"链路完成通知
-
-关键能力：
-
-多镜像识别：一次构建产出多个镜像（前端+后端+Sidecar），自动识别并更新对应YAML
-
-配置策略灵活：支持直接提交（dev环境）或创建MR（prod环境）
-
-安全校验：更新前校验镜像是否存在于仓库、YAML语法是否正确
-
-回滚能力：保留历史版本，支持一键回滚到上一个稳定镜像
-
-### 3.3 Agent 2: Diagnosis Agent（诊断代理）
-
-职责：ArgoCD部署后自动监控、自动诊断、自动报告
-
-工作流：
-
-1. 监听ArgoCD Application状态变化（同步中→同步失败/健康/降级）
-
-2. 当状态为非"Healthy"时，自动进入诊断模式：
-
-   a. 收集ArgoCD同步日志和错误信息
-
-   b. 查询K8s Events（kubectl get events --sort-by='.lastTimestamp'）
-
-   c. 获取Pod状态和日志（最近失败的Pod）
-
-   d. 检查资源限制（CPU/Memory/磁盘/网络）
-
-   e. 检查ConfigMap/Secret是否正确挂载
-
-3. 根因分析（基于规则引擎+LLM）：
-
-   - 规则引擎：匹配常见错误模式（ImagePullBackOff → 镜像不存在；CrashLoopBackOff → 启动失败）
-
-   - LLM增强：对复杂日志进行语义分析，生成人类可读的错误描述
-
-4. 生成诊断报告：
-
-   - 问题摘要（一句话）
-
-   - 根因分析（技术细节）
-
-   - 修复建议（步骤化）
-
-   - 责任人推荐（根据代码提交记录和模块归属）
-
-5. 推送：通过IM推送给相关开发和运维同学
-
-关键能力：
-
-分级诊断：区分"配置问题"（改YAML即可）vs "代码问题"（需开发修复）vs "环境问题"（需运维处理）
-
-关联分析：识别是否是某次代码提交引入的问题（通过Git Blame关联）
-
-诊断记录：M1保存诊断结果和证据摘要；知识库自动沉淀推迟到M2
-
-### 3.4 Agent 3: Collaboration Agent（协作代理）
-
-职责：替代"群里@人"的低效协作模式，成为开发和运维之间的智能调度中枢
-
-工作流：
-
-1. 接收Pipeline Agent和Diagnosis Agent的事件
-
-2. 智能路由：
-
-   - "构建成功+自动部署成功" → 通知开发同学"已上线，无需操作"
-
-   - "部署失败+根因=代码问题" → 创建工单/通知分配给对应开发
-
-   - "部署失败+根因=配置问题" → 通知运维同学，附带修复命令
-
-   - "部署失败+根因=未知" → 同时通知开发和运维，附带诊断日志链接
-
-3. 进度追踪：
-
-   - 自动追踪问题修复状态（监听GitLab新提交、Tekton新构建、ArgoCD新同步）
-
-   - 如果30分钟无响应，自动升级通知（@主管）
-
-4. 日报生成：
-
-   - 每日自动汇总：构建次数、部署次数、失败次数、平均修复时间
-
-   - 识别高频问题，推荐优化项
-
-关键能力：
-
-IM集成：深度集成飞书，支持卡片消息、按钮交互（"确认已修复"、"需要协助"）
-
-工单自动创建：对接Jira/Tapd/飞书项目，自动创建、分配、关闭工单
-
-上下文保持：同一个部署问题，所有相关信息（日志、诊断、讨论）在一个线程中聚合
-
-## 四、FDE Workstation MVP模块清单
-
-### 4.1 模块选择逻辑
-
-第一个里程碑不追求"五层十二域全齐"，而是以交付"运维提效Agent Trio"为目标，反推需要哪些Workstation模块支撑FDE完成交付。
-
-### 4.2 MVP模块清单（6个模块）
-
-### 4.3 最终MVP范围（6个模块）
-
-P0（必须开发，阻塞交付）：
-
-Layer 1 - 现场作战背包（日志速析器 + API契约生成器）
-
-Layer 3 - 需求翻译器
-
-Layer 4 - 行业模板市场（CI/CD运维模板）
-
-Layer 5 - 评估驱动引擎
-
-P1（重要，可在里程碑内完成）：
-
-Layer 1 - 合规检测雷达（简化版）
-
-Layer 2 - 异步访谈Agent（简化版）
-
-P2（延后到里程碑二）：
-
-利益相关者图谱、场景挖掘Agent、数据治理工坊、私有化部署盒、客户共创看板
-
-## 五、开发计划（3周排期）
-
-### 5.1 项目结构
-
-FDE-Workstation-M1/
-
-├── workstation/                    # FDE Workstation平台MVP
-
-│   ├── layer1_field_toolkit/       # 现场工具层
-
-│   │   ├── field_pack/             # 现场作战背包
-
-│   │   │   ├── log_analyzer/       # 日志速析器
-
-│   │   │   └── api_generator/      # API契约生成器
-
-│   │   └── compliance_radar/       # 合规检测雷达（简化）
-
-│   ├── layer2_customer_intel/      # 客户洞察层
-
-│   │   └── async_interview/        # 异步访谈Agent（简化）
-
-│   ├── layer3_req_translation/     # 需求转化层
-
-│   │   └── req_translator/         # 需求翻译器
-
-│   ├── layer4_prototype_factory/   # 原型工厂层
-
-│   │   └── template_hub/           # 行业模板市场
-
-│   │       └── templates/
-
-│   │           └── cicd_ops/       # CI/CD运维模板
-
-│   └── layer5_delivery_validation/ # 交付验证层
-
-│       └── edd_engine/             # 评估驱动引擎
-
-├── agents/                         # 运维提效Agent Trio
-
-│   ├── pipeline_agent/             # 管道代理
-
-│   ├── diagnosis_agent/            # 诊断代理
-
-│   └── collaboration_agent/        # 协作代理
-
-├── shared/                         # 共享基础设施
-
-│   ├── event_bus/                  # 事件总线（Agent间通信）
-
-│   ├── diagnosis_records/          # 诊断记录（M1）；知识库沉淀推迟到M2
-
-│   └── im_connector/               # IM连接器（飞书）
-
-└── docs/                           # 交付文档
-
-### 5.2 详细排期（WBS）
-
-Week 1 : 需求确认 + 基础设施搭建
-
-Week 1 里程碑：需求确认完成，基础设施Ready，开发环境打通，Pipeline Agent跑通端到端（Tekton构建完成 → YAML更新 → ArgoCD同步）。
-
-Week 2: Diagnosis Agent + 模板市场
-
-Week 2 里程碑：Diagnosis Agent能自动诊断常见部署问题并生成报告，Agent Trio完整集成，能完成"构建→部署→诊断→通知→追踪"全链路。
-
-Week 3: 评估驱动引擎 + 内部试用 + 效果验证 + 交付文档 + 复盘
-
-Week 3 里程碑：Agent进入内部灰度试用，评估引擎开始采集数据。M1正式交付，效果数据验证通过，M2规划完成。
-
-## 六、技术方案要点
-
-### 6.1 Agent Trio技术栈
-
-### 6.2 与现有系统集成点
-
-## 七、验收标准（Definition of Done）
-
-### 7.1 Agent Trio验收
-
-### 7.2 FDE Workstation MVP验收
-
-## 八、风险与应对
-
-## 九、资源需求
-
-## 十、M1 → M2 衔接规划
-
-M1验证成功后，M2重点：
-
-扩展Workstation模块：开发利益相关者图谱、场景挖掘Agent、数据治理工坊、客户共创看板
-
-扩展Agent能力：支持Helm/Kustomize、支持多集群、支持金丝雀发布
-
-扩展行业模板：从"CI/CD运维"扩展到"监控告警运维"、"成本优化运维"
-
-对外交付准备：将内部验证的Agent和Workstation模块，封装为可对外部客户交付的产品
+```text
+规则命中时不调用 Claude API
+知识库相似度命中时复用历史方案
+LLM 兜底时输出结构化诊断结果和 evidence_refs
+```
+
+### 5.6 W2-T6 智能路由和通知
+
+功能：
+
+```text
+根据诊断类型、涉及模块、提交记录和服务归属判断通知对象
+用 Claude API 生成飞书卡片摘要
+减少直接转发原始日志
+```
+
+验收：
+
+```text
+飞书通知包含故障摘要、根因、影响范围、建议动作和负责人
+通知不包含敏感字段
+```
+
+### 5.7 W2-T7 进度追踪和升级
+
+功能：
+
+```text
+识别飞书回复是否有效
+区分已读、确认、处理中、已修复、无效回复
+超时或无效闭环时升级
+```
+
+验收：
+
+```text
+能对样例回复输出 progress_status
+无效回复不会被当作已解决
+```
+
+### 5.8 W2-T8 日报生成
+
+功能：
+
+```text
+聚合 GitLab、Tekton、ArgoCD、诊断和人工介入摘要
+Claude API 生成自然语言日报
+提炼高频故障、趋势和风险
+```
+
+验收：
+
+```text
+日报包含构建数、部署数、失败数、平均修复时间、高频问题和建议动作
+可推送飞书或保存 Markdown artifact
+```
+
+---
+
+## 6. 技术方案要点
+
+### 6.1 Redis Streams 事件总线
+
+```text
+实现：RedisStreamsEventBroker（EventBroker 接口实现）
+核心能力：
+  - publish：发布事件到 stream
+  - subscribe：消费组订阅，支持 ack/nack
+  - publishDeadLetter：死信队列投递
+  - claimPending：超时消息重新认领
+配置：
+  - stream: fde.events
+  - dlq_stream: fde.events.dlq
+  - consumer groups: agent.pipeline / agent.diagnosis / agent.collaboration / agent.audit
+测试替代：MemoryEventBroker（无外部依赖）
+```
+
+### 6.2 code_runtime
+
+```text
+运行位置：GitLab CI job、Tekton Task
+安装方式：CI 镜像内安装或预构建镜像
+调用方式：业务 Agent 通过 FDE AgentRuntime 调用 `code_runtime:code_task` / `code_runtime:repair_task`，不以 `claude -p` CLI 子进程作为主路径
+权限控制：permission_profile + allowed_tools 最小化
+产物：报告、diff、patch、job status
+```
+
+### 6.3 Claude API
+
+```text
+运行位置：Diagnosis Agent、Collaboration Agent
+调用方式：服务端 API 调用
+产物：结构化诊断 JSON、飞书卡片、日报 Markdown
+约束：只做推理和内容生成，不直接修改文件
+```
+
+### 6.4 Agent Runtime
+
+```text
+code_runtime：FDE 自有代码任务运行时，用于 MR Review、YAML Governance、Build Fix
+claude_api：封装 Claude API，用于 Diagnosis、Collaboration、日报
+schema validator：强制 JSON 输出符合契约
+artifact writer：保存报告、diff、诊断证据、日报
+runtime audit：记录耗时、token、错误摘要和输入证据引用
+权限控制：按 permission_profile 和 environment 策略分级
+```
+
+### 6.5 外部系统
+
+```text
+GitLab：MR、CI job、artifact、approval
+Tekton：PipelineRun、TaskRun、构建日志
+ArgoCD：Application 状态和同步
+Kubernetes：Events、Pod logs、资源状态
+Feishu：通知、审批、回复和升级
+```
+
+---
+
+## 7. 风险与应对
+
+| 风险 | 影响 | 应对 |
+| --- | --- | --- |
+| 继续过度平台化 | 实施成本过高、返工风险上升 | 底座契约先定，实现先薄，不恢复重型多服务平台 |
+| 只做最小 CI 模板 | 后续 Diagnosis、Collaboration、记忆接入返工 | W1-T3 先定义事件、Runtime、Artifact、Schema、IM 边界 |
+| Redis 不可用 | 事件投递中断 | 使用 MemoryEventBroker 替代（测试环境） |
+| code_runtime 权限过大 | 误改文件或越权执行 | allowed_tools 按任务最小化，prod 只输出建议 |
+| Claude API 诊断不稳定 | 误判根因 | 规则优先，AI 补充，所有结论带 evidence |
+| 外部凭据未就绪 | 真实联调受阻 | 用 GitLab variables 和服务端 env 占位，先跑模拟样例 |
+| 飞书通知产生噪音 | 打扰开发和运维 | 先做摘要和分级，严重问题才升级 |
+
+---
+
+## 8. M1 通过条件
+
+```text
+W1-T3 底座契约通过：
+  - Redis Streams 事件总线已实现（可靠投递、消费组、ACK、死信）
+  - CloudEvents 事件信封已定义
+  - IM 连接器已实现
+  - Agent Runtime 已实现（支持 code_task / analysis_task / repair_task 分派）
+  - Artifact 规范已定义
+  - 公共契约已定义（ID、错误码、脱敏）
+
+Pipeline Agent v0.1 能监听 Tekton 构建完成事件，提取镜像名
+GitLab MR 有 Claude Code 合规扫描 job
+Tekton 有 Claude Code YAML audit task
+构建失败有 Claude Code 修复建议 artifact
+Diagnosis Agent 能通过三层漏斗输出结构化根因分析
+Collaboration Agent 能生成飞书通知、升级判断和日报
+生产环境没有自动发布或自动回滚
+```

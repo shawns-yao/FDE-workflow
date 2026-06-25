@@ -1,5 +1,6 @@
+# 面向FDE的workstations产品设计方案
 
-面向FDE的workstations产品设计方案
+**定位说明**：本文保留为长期产品远景与方向性设计，不作为 M1 实施依据。M1 的范围、边界、验收和接口契约以 `docs/architecture/fde-platform-m1-design.md`、`docs/architecture/fde-platform-m1-contracts.md` 和 `docs/requirements/milestone-1-plan.md` 为准。
 
 ## 一、机会判断：为什么现在做这件事
 
