@@ -1,0 +1,70 @@
+name: fde-workstation
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - fde-internal
+
+  fde-workstation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fde-workstation:prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      FDE_HTTP_HOST: 0.0.0.0
+      FDE_HTTP_PORT: 3412
+      REDIS_URL: redis://redis:6379/0
+    expose:
+      - "3412"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3412/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - fde-internal
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      fde-workstation:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - fde-internal
+
+volumes:
+  redis-data:
+
+networks:
+  fde-internal:
+    driver: bridge

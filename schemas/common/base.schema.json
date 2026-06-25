@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/base.schema.json",
+  "title": "BaseFields",
+  "type": "object",
+  "required": ["correlation_id", "trace_id", "run_id", "application", "environment", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "application": { "type": "string", "minLength": 1 },
+    "environment": { "$ref": "environment.schema.json" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "metadata": { "$ref": "metadata.schema.json" }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/agent-runtime/tool-call.schema.json",
+  "title": "ToolCall",
+  "type": "object",
+  "required": ["name", "args"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "args": { "type": "object" }
+  }
+}

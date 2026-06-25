@@ -1,0 +1,30 @@
+{
+  "name": "fde-workstation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "start:prod": "node dist/src/main.js",
+    "build": "tsc -p tsconfig.json",
+    "schema:validate": "tsx src/cli/schema-validate.ts",
+    "fixtures:scan-secrets": "tsx src/cli/scan-secrets.ts",
+    "redis:config": "tsx src/cli/print-redis-config.ts",
+    "events:redis-smoke": "tsx src/cli/redis-streams-smoke.ts",
+    "feishu:send-smoke": "tsx src/cli/send-feishu-smoke.ts",
+    "pipeline:worker": "tsx src/cli/run-pipeline-agent.ts",
+    "radar:scan": "tsx src/cli/run-compliance-scan.ts",
+    "radar:schedule": "tsx src/cli/schedule-compliance-radar.ts",
+    "test:focused": "tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ioredis": "^5.11.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

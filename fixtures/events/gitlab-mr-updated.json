@@ -1,0 +1,22 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0101",
+  "source": "gitlab",
+  "type": "gitlab.mr.updated",
+  "subject": "project/123/mr/45",
+  "time": "2026-06-17T08:00:00Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0101",
+  "trace_id": "trace-20260617-0101",
+  "run_id": "run-20260617-0101",
+  "application": "api-gateway",
+  "environment": "dev",
+  "data": {
+    "project_id": "123",
+    "merge_request_iid": "45",
+    "status": "updated"
+  },
+  "metadata": {
+    "upstream_id": "gitlab-project-123-mr-45-update-1"
+  }
+}

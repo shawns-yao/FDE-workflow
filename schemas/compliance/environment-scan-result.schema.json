@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/compliance/environment-scan-result.schema.json",
+  "title": "EnvironmentScanResult",
+  "type": "object",
+  "required": ["scan_id", "environment", "trigger", "mode", "overall_status", "started_at", "finished_at", "targets", "artifact_refs", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "scan_id": { "type": "string" },
+    "environment": { "$ref": "../common/environment.schema.json" },
+    "trigger": { "type": "string", "enum": ["scheduled", "manual", "preflight", "event"] },
+    "mode": { "type": "string", "enum": ["full", "fast", "targeted"] },
+    "overall_status": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "checks"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "enum": ["gitlab", "tekton", "argocd", "kubernetes"] },
+          "status": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "layer", "status", "message"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "layer": { "type": "string", "enum": ["connectivity", "permission", "configuration"] },
+                "status": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+                "message": { "type": "string" },
+                "latency_ms": { "type": "integer", "minimum": 0 },
+                "impact": { "type": "string" },
+                "recommendation": { "type": "string" },
+                "error": { "$ref": "../common/error.schema.json" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": { "$ref": "../common/artifact.schema.json" }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["pending_checks"],
+      "additionalProperties": true,
+      "properties": {
+        "pending_checks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

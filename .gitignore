@@ -1,0 +1,145 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ============================================
+# Dependencies
+# ============================================
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.pnpm-store
+cc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================
+# Testing
+# ============================================
+/coverage
+.coverage
+htmlcov/
+.tox/
+
+# ============================================
+# Build & Production
+# ============================================
+# Next.js
+/.next/
+/out/
+
+# General build
+/build
+/dist
+*.egg-info/
+
+# ============================================
+# IDE & Editors
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ============================================
+# Logs & Temporary Files
+# ============================================
+/logs
+/tmp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.pem
+config/local.yaml
+config/production.yaml
+
+# Kubernetes secrets
+deploy/k8s/secret.yaml
+
+# ============================================
+# Database
+# ============================================
+*.sqlite
+*.sqlite3
+*.db
+
+# ============================================
+# Misc
+# ============================================
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+.cursor
+
+# ============================================
+# Local Code Search Indexes
+# ============================================
+.codegraph/
+.semble/
+.fast-context/
+.fast_context/
+.ace/
+
+# ============================================
+# Local Claude Workspace Files
+# ============================================
+.claude/
+.ace-tool/
+
+# ============================================
+# FDE Workstation Specific
+# ============================================
+# Local design documents are not part of the runtime repository
+/docs/
+
+# Log system storage
+/var/log/fde/
+
+# Temporary read scripts
+read_docx.py
+doc1.txt
+doc2.txt
+
+# Local development data
+/data/
+/storage/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ============================================
+# Documentation (Optional)
+# ============================================
+# Uncomment if you don't want to track certain docs
+# /docs/api/
+# TODO.md

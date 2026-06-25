@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/error.schema.json",
+  "title": "ErrorObject",
+  "type": "object",
+  "required": ["code", "message", "retryable", "severity"],
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "SCHEMA_VALIDATION_FAILED",
+        "CONFIGURATION_INVALID",
+        "UPSTREAM_UNAVAILABLE",
+        "AUTHENTICATION_FAILED",
+        "PERMISSION_DENIED",
+        "IDEMPOTENCY_CONFLICT",
+        "DELIVERY_RETRY_EXHAUSTED",
+        "DLQ_PUBLISHED",
+        "MODEL_NOT_CONFIGURED",
+        "LLM_UNAVAILABLE",
+        "TOOL_PERMISSION_DENIED",
+        "ARTIFACT_WRITE_FAILED",
+        "EVENT_PUBLISH_FAILED",
+        "ARCHIVE_WRITE_FAILED",
+        "COMMAND_EXECUTION_FAILED",
+        "COMMAND_TIMEOUT"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "warning", "error", "critical"]
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "cause_ref": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

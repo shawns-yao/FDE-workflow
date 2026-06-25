@@ -1,0 +1,36 @@
+{
+  "scan_id": "env-scan-20260617-0001",
+  "environment": "test",
+  "trigger": "scheduled",
+  "mode": "full",
+  "overall_status": "warning",
+  "started_at": "2026-06-17T08:00:00Z",
+  "finished_at": "2026-06-17T08:01:20Z",
+  "targets": [
+    {
+      "name": "argocd",
+      "status": "warning",
+      "checks": [
+        {
+          "name": "token_expiry",
+          "layer": "permission",
+          "status": "warning",
+          "message": "ArgoCD API Token 将在 5 天后过期",
+          "latency_ms": 82,
+          "impact": "到期后自动同步和状态查询能力将失效",
+          "recommendation": "轮换 ArgoCD API Token"
+        }
+      ]
+    }
+  ],
+  "artifact_refs": [
+    {
+      "artifact_uri": "artifacts/compliance/env-scan-20260617-0001/environment-check-report.json",
+      "artifact_type": "environment_check_report",
+      "content_type": "application/json"
+    }
+  ],
+  "metadata": {
+    "pending_checks": []
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0001",
+  "source": "compliance",
+  "type": "compliance.environment.scan.completed",
+  "subject": "environment/test",
+  "time": "2026-06-17T08:01:20Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0001",
+  "trace_id": "trace-20260617-0001",
+  "run_id": "run-20260617-0001",
+  "application": "platform",
+  "environment": "test",
+  "data": {
+    "scan_id": "env-scan-20260617-0001",
+    "environment": "test",
+    "result_kind": "healthy",
+    "overall_status": "healthy",
+    "affected_targets": [],
+    "critical_count": 0,
+    "warning_count": 0,
+    "report_artifact_uri": "artifacts/compliance/env-scan-20260617-0001/environment-check-report.json"
+  },
+  "metadata": {
+    "adapter_version": "compliance-radar-v1"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/pipeline/yaml-governance-result.schema.json",
+  "title": "YamlGovernanceResult",
+  "type": "object",
+  "required": ["approved", "risk_level", "summary", "changed_files_reviewed", "findings", "required_fixes", "auto_fixed"],
+  "additionalProperties": false,
+  "properties": {
+    "approved": { "type": "boolean" },
+    "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "changed_files_reviewed": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": { "type": "string", "enum": ["info", "warning", "error", "critical"] },
+          "message": { "type": "string", "minLength": 1 },
+          "file": { "type": "string" },
+          "recommendation": { "type": "string" }
+        }
+      }
+    },
+    "required_fixes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "auto_fixed": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "type": "feishu.card.action_clicked",
+  "message_id": "msg-123",
+  "raw_callback_excerpt": "{\"action\":\"acknowledge\"}",
+  "correlation_id": "corr-20260617-1001",
+  "trace_id": "trace-20260617-1001",
+  "run_id": "run-20260617-1001"
+}

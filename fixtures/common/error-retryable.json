@@ -1,0 +1,11 @@
+{
+  "code": "UPSTREAM_UNAVAILABLE",
+  "message": "ArgoCD API 暂时不可用",
+  "retryable": true,
+  "severity": "warning",
+  "details": {
+    "system": "argocd",
+    "operation": "get_application_status"
+  },
+  "cause_ref": "artifacts/runs/run-20260617-0001/errors/raw-error.json"
+}

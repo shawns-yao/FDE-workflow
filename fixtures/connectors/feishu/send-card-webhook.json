@@ -1,0 +1,22 @@
+{
+  "mode": "webhook_bot",
+  "target_type": "group",
+  "target_id": "chat-123",
+  "card_type": "environment_scan_report",
+  "title": "环境检测报告",
+  "summary": "测试环境健康",
+  "severity": "low",
+  "actions": [
+    {
+      "type": "open_url",
+      "label": "查看详情",
+      "url": "https://example.local/report"
+    }
+  ],
+  "data": {
+    "scan_id": "env-scan-20260617-0001"
+  },
+  "correlation_id": "corr-20260617-1001",
+  "trace_id": "trace-20260617-1001",
+  "run_id": "run-20260617-1001"
+}

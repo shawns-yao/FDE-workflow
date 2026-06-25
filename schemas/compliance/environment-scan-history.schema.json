@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/compliance/environment-scan-history.schema.json",
+  "title": "EnvironmentScanHistoryRecord",
+  "type": "object",
+  "required": ["scan_id", "environment", "overall_status", "target_status", "report_artifact_uri", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "scan_id": { "type": "string" },
+    "environment": { "$ref": "../common/environment.schema.json" },
+    "overall_status": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+    "target_status": {
+      "type": "object",
+      "required": ["gitlab", "tekton", "argocd", "kubernetes"],
+      "additionalProperties": false,
+      "properties": {
+        "gitlab": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+        "tekton": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+        "argocd": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+        "kubernetes": { "type": "string", "enum": ["healthy", "warning", "critical"] }
+      }
+    },
+    "report_artifact_uri": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

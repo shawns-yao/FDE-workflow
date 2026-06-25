@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/events/compliance-event.schema.json",
+  "title": "ComplianceEnvironmentScanEventData",
+  "type": "object",
+  "required": ["scan_id", "environment", "result_kind", "overall_status", "affected_targets", "critical_count", "warning_count", "report_artifact_uri"],
+  "additionalProperties": false,
+  "properties": {
+    "scan_id": { "type": "string", "minLength": 1 },
+    "environment": { "$ref": "../common/environment.schema.json" },
+    "result_kind": { "type": "string", "enum": ["healthy", "environment_unhealthy", "execution_error"] },
+    "overall_status": { "type": "string", "enum": ["healthy", "warning", "critical"] },
+    "affected_targets": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["gitlab", "tekton", "argocd", "kubernetes"] }
+    },
+    "critical_count": { "type": "integer", "minimum": 0 },
+    "warning_count": { "type": "integer", "minimum": 0 },
+    "report_artifact_uri": { "type": "string", "minLength": 1 },
+    "error": { "$ref": "../common/error.schema.json" }
+  }
+}

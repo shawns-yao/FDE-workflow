@@ -1,0 +1,10 @@
+{
+  "artifact_id": "artifact-20260617-0001",
+  "artifact_uri": "artifacts/runs/run-20260617-0001/yaml-audit-report.md",
+  "artifact_type": "yaml_audit_report",
+  "content_type": "text/markdown",
+  "sha256": "optional-content-hash",
+  "size_bytes": 12345,
+  "created_at": "2026-06-17T08:00:00Z",
+  "excerpt": "脱敏摘要"
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/events/delivery-record.schema.json",
+  "title": "DeliveryRecord",
+  "type": "object",
+  "required": ["delivery_id", "event_id", "consumer_id", "queue_name", "status", "attempt_count", "first_attempt_at", "last_attempt_at"],
+  "additionalProperties": false,
+  "properties": {
+    "delivery_id": { "type": "string", "minLength": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "consumer_id": { "type": "string", "minLength": 1 },
+    "queue_name": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["processing", "processed", "failed"] },
+    "attempt_count": { "type": "integer", "minimum": 1 },
+    "first_attempt_at": { "type": "string", "format": "date-time" },
+    "last_attempt_at": { "type": "string", "format": "date-time" },
+    "next_retry_at": { "type": "string", "format": "date-time" },
+    "error": { "$ref": "../common/error.schema.json" }
+  }
+}

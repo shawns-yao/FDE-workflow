@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.local/schemas/common/metadata.schema.json",
+  "title": "Metadata",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "adapter_version": { "type": "string" },
+    "upstream_system": { "type": "string" },
+    "upstream_id": { "type": "string" },
+    "namespace": { "type": "string" },
+    "project_id": { "type": "string" },
+    "repository": { "type": "string" },
+    "branch": { "type": "string" },
+    "commit_sha": { "type": "string" },
+    "actor": { "type": "string" },
+    "display_time": { "type": "string" },
+    "pending_checks": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "correlation_id": "corr-20260617-0001",
+  "trace_id": "trace-20260617-0001",
+  "run_id": "run-20260617-0001",
+  "application": "api-gateway",
+  "environment": "dev",
+  "created_at": "2026-06-17T08:00:00Z",
+  "metadata": {
+    "adapter_version": "fixture-v1"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "specversion": "1.0",
+  "id": "evt-20260617-0401",
+  "source": "kubernetes",
+  "type": "kubernetes.pod.failed",
+  "subject": "namespace/test/pod/api-gateway-abc",
+  "time": "2026-06-17T08:11:00Z",
+  "datacontenttype": "application/json",
+  "correlation_id": "corr-20260617-0401",
+  "trace_id": "trace-20260617-0401",
+  "run_id": "run-20260617-0401",
+  "application": "api-gateway",
+  "environment": "test",
+  "data": {
+    "namespace": "test",
+    "pod_name": "api-gateway-abc",
+    "status": "failed",
+    "reason": "CrashLoopBackOff"
+  },
+  "metadata": {
+    "upstream_id": "kubernetes-test-pod-api-gateway-abc-failed"
+  }
+}
