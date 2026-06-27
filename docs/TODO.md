@@ -1,6 +1,6 @@
 # FDE Workstation TODO
 
-**更新时间**：2026-06-26
+**更新时间**：2026-06-27
 **当前状态**：当前方向已校准为三 Agent + 双 AI 载体 + 底座先行：Pipeline / Diagnosis / Collaboration 三个 Agent，FDE 自研 Agent Runtime 迁移或重写 Claude Code 的通用编码能力，Claude API 用于诊断和协同
 
 ---
@@ -149,6 +149,47 @@
 - **影响范围**：`src/i18n/zh.json`、`src/i18n/messages.ts`、`src/app/service-runtime.ts`、`src/runtime/`、`src/events/`、`src/connectors/feishu/`、`src/radars/compliance/`、`src/agents/pipeline/state-machine.ts`、`.env.example`、`.env.production.example`
 - **说明**：中文展示文案、运行时错误消息、飞书回调错误、事件入口认证错误、合规探针提示和 Pipeline 状态转换原因统一进入 `src/i18n/zh.json`。环境变量只保留密钥、目标、开关、URL 等部署配置，不承载中文文案。运行时代码通过 `loadZhMessages()` 读取资源，动态文案使用模板占位符。
 - **验证记录**：已确认旧的启动消息正文变量和按钮文案变量不再存在；运行时代码中文字符串只剩 `zh.json` 资源和代码注释中的示例。
+
+### DONE-20260627-02：服务器部署目录与远程仓库命名确认
+
+- **状态**：已确认
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：服务器部署命令、部署文档、后续运维操作记录
+- **说明**：服务器部署目录、远程仓库名称和本地开发目录不要求同名，但后续命令必须明确使用真实路径，不能假设目录名。
+- **命名记录**：
+  - 本地开发目录：`C:\Document\Gongji Tech\FDE Workstation`
+  - 服务器部署目录：`/opt/fde-workstation`
+  - GitHub 远程仓库：`shawns-yao/FDE-workflow`
+  - Git 远程地址：`https://github.com/shawns-yao/FDE-workflow.git`
+  - 服务器已拉取提交：`f5fa0b0`
+- **结论**：部署命令统一以 `/opt/fde-workstation` 为服务器路径；代码同步统一以 `https://github.com/shawns-yao/FDE-workflow.git` 为远程仓库。`fde-workstation` 表示服务器上的服务部署目录，`FDE-workflow` 表示 GitHub 代码仓库名，两者可以不同。
+
+### DONE-20260627-03：飞书启动测试变量用途边界确认
+
+- **状态**：已确认
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`.env.example`、`.env.production.example`、`src/app/service-runtime.ts`、`src/main.ts`、`docs/implementation/steps/03-飞书连接器.md`
+- **说明**：飞书启动测试变量对当前服务器部署验收有用，但不是正式业务通知配置。它验证服务进程内的飞书发送、卡片、艾特、按钮和回调能力；正式服务中的通知对象、艾特对象、卡片动作和交互状态必须由业务事件、责任人映射、协同通知路由和卡片生成逻辑决定，不能依赖启动测试环境变量。
+- **变量边界**：
+  - `FDE_FEISHU_STARTUP_MESSAGE_ENABLED`：有用，仅作为部署验收开关，默认必须为 `false`。
+  - `FEISHU_STARTUP_MESSAGE_CHAT_ID`：有用，仅指定部署验收消息发送到哪个测试群。
+  - `FEISHU_STARTUP_MENTION_OPEN_IDS`：有用，用于手动验证指定 open_id 的艾特渲染；正式通知应来自责任人映射或通知路由。
+  - `FEISHU_STARTUP_MENTION_FROM_CHAT_MEMBERS` / `FEISHU_STARTUP_MENTION_LIMIT`：有用，用于验证群成员读取权限和自动艾特能力；正式通知不应随机艾特群成员，生产环境默认保持 `false`。
+  - `FEISHU_STARTUP_ACTION_URL`：有用，用于验证 `open_url` 按钮渲染；正式服务中的跳转地址应由业务 artifact、工单、构建详情或诊断报告生成。
+  - `FEISHU_STARTUP_ENABLE_CALLBACK_ACTIONS`：有用，用于验证 `acknowledge` 类按钮能回流到服务；正式服务中的 `acknowledge`、`claim`、`mark_fixed` 等动作应由 Collaboration Agent 的卡片状态机生成。
+- **后续处理**：在 Tekton / ArgoCD / GitOps 真实事件通知链路完成并通过联调后，应把启动测试变量降级为手动 smoke 工具，或从生产环境模板中移除，只保留正式业务通知配置。
+
+### DONE-20260627-04：环境变量模板 ASCII 化
+
+- **状态**：已完成
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`.env.example`、`.env.production.example`、服务器 Docker Compose 部署流程
+- **问题**：服务器执行 `docker compose --env-file .env.production` 时，`.env.production` 第一行中文注释触发解析失败。该文件由含中文注释的 `.env.production.example` 复制而来，说明可提交模板存在生产使用风险。
+- **处理**：环境变量模板中的注释统一改为 ASCII 英文，避免 Compose、Shell、编辑器编码和终端显示差异影响部署。中文展示文案继续放在 `src/i18n/zh.json`，中文说明放在文档中，不放入可被 `--env-file` 直接读取的模板。
+- **结论**：`.env.example` 和 `.env.production.example` 只承载键名、默认值、英文部署提示和占位配置；`.env`、`.env.production` 仍然不提交，真实密钥只保存在本机或服务器。
 
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
