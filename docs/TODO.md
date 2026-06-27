@@ -212,6 +212,16 @@
 - **验证记录**：新增聚焦测试覆盖 acknowledge 消费、卡片更新、进度事件发布、重复点击幂等和服务运行时 wiring。
 - **剩余细节**：飞书更新失败当前依赖 `EventSubscriber` 进入重试或死信路径；上游 OpenAPI 失败错误码到业务 `ErrorObject` 的更细分类可后续增强。
 
+### DONE-20260627-07：飞书卡片 claim 动作进入 investigating 状态
+
+- **状态**：已完成代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
+- **说明**：Collaboration Event Consumer 支持消费 `claim` 卡片动作，并将协同进度状态映射为 `investigating`。消费者会更新原飞书卡片，发布 `collaboration.progress.updated`，并复用现有 `message_id + action_type + action_value` 幂等策略。
+- **验证记录**：新增聚焦测试覆盖 `claim -> investigating`，并确认原有 `acknowledge -> acknowledged` 行为仍通过。
+- **剩余细节**：`mark_fixed`、自然语言回复识别、超时升级和完整协同状态机仍未实现。
+
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
 - **状态**：已完成

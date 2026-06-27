@@ -56,6 +56,31 @@ test("collaboration event consumer ignores duplicate acknowledge clicks for the 
   assert.equal(broker.published.filter((event) => event.type === "collaboration.progress.updated").length, 1);
 });
 
+test("collaboration event consumer claims a Feishu card action as investigating", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T01:00:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(actionEvent("evt-action-claim-001", "claim", "claim_issue"));
+
+  assert.equal(connector.updates.length, 1);
+  assert.equal(connector.updates[0].message_id, "om_ack_001");
+  assert.equal(connector.updates[0].data["status"], "investigating");
+  assert.equal(connector.updates[0].data["action_type"], "claim");
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "investigating");
+  assert.equal(progressData.action_type, "claim");
+  assert.equal(progressData.updated_at, "2026-06-27T01:00:00.000Z");
+});
+
 class CapturingBroker implements EventBroker {
   private readonly subscriptions: Array<{ eventTypes: EventType[]; handler: EventHandler; options: SubscribeOptions }> = [];
   readonly published: CloudEvent[] = [];
@@ -141,7 +166,11 @@ class CapturingFeishuConnector implements IMConnectorService {
   }
 }
 
-function actionEvent(id: string): CloudEvent<FeishuCallbackEvent> {
+function actionEvent(
+  id: string,
+  actionType: "acknowledge" | "claim" = "acknowledge",
+  actionValue = "startup_acknowledge"
+): CloudEvent<FeishuCallbackEvent> {
   return {
     specversion: "1.0",
     id,
@@ -160,9 +189,9 @@ function actionEvent(id: string): CloudEvent<FeishuCallbackEvent> {
       message_id: "om_ack_001",
       environment: "prod",
       action: {
-        type: "acknowledge",
-        label: "Acknowledge",
-        value: "startup_acknowledge"
+        type: actionType,
+        label: actionType,
+        value: actionValue
       },
       operator: "ou_user_001",
       raw_callback_excerpt: "{}",

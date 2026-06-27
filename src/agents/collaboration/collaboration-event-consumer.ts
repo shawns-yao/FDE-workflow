@@ -1,6 +1,6 @@
 import { createId } from "../../common/ids.js";
 import type { IMConnectorService } from "../../connectors/feishu/connector.js";
-import type { FeishuCallbackEvent } from "../../connectors/feishu/types.js";
+import type { FeishuActionType, FeishuCallbackEvent } from "../../connectors/feishu/types.js";
 import type { EventBroker } from "../../events/broker.js";
 import type { CloudEvent } from "../../events/cloudevent.js";
 import type { EventSubscriber } from "../../events/event-subscriber.js";
@@ -15,15 +15,18 @@ export interface CollaborationEventConsumerOptions {
 
 export interface CollaborationProgressUpdatedData {
   message_id: string;
-  status: "acknowledged";
+  status: CollaborationProgressStatus;
   actor?: {
     type: "user";
     id: string;
   };
-  action_type: "acknowledge";
+  action_type: CollaborationProgressActionType;
   action_value?: string;
   updated_at: string;
 }
+
+export type CollaborationProgressStatus = "acknowledged" | "investigating";
+export type CollaborationProgressActionType = "acknowledge" | "claim";
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
@@ -53,7 +56,8 @@ export class CollaborationEventConsumer {
   }
 
   private async handleCardActionClicked(event: CloudEvent<FeishuCallbackEvent>): Promise<void> {
-    if (event.data.action?.type !== "acknowledge") {
+    const action = readProgressAction(event.data.action?.type);
+    if (!action) {
       return;
     }
 
@@ -62,7 +66,7 @@ export class CollaborationEventConsumer {
       return;
     }
 
-    const idempotencyKey = collaborationActionKey(messageId, event.data.action.type, event.data.action.value);
+    const idempotencyKey = collaborationActionKey(messageId, action, event.data.action?.value);
     const existingState = await this.idempotencyStore.get(idempotencyKey);
     if (existingState === "processed" || existingState === "processing") {
       return;
@@ -71,14 +75,14 @@ export class CollaborationEventConsumer {
     await this.idempotencyStore.set(idempotencyKey, "processing");
     try {
       const updatedAt = this.now().toISOString();
-      const progress = toAcknowledgedProgress(event, messageId, updatedAt);
+      const progress = toProgressUpdatedData(event, messageId, action, updatedAt);
       await this.connector.updateCard({
         mode: "openapi_bot",
         message_id: messageId,
         card_type: "custom",
         title: "FDE Workstation",
-        summary: "Status: acknowledged",
-        severity: "low",
+        summary: `Status: ${progress.status}`,
+        severity: progress.status === "investigating" ? "medium" : "low",
         actions: [],
         data: {
           ...progress
@@ -96,22 +100,37 @@ export class CollaborationEventConsumer {
   }
 }
 
-function toAcknowledgedProgress(
+function toProgressUpdatedData(
   event: CloudEvent<FeishuCallbackEvent>,
   messageId: string,
+  action: CollaborationProgressActionType,
   updatedAt: string
 ): CollaborationProgressUpdatedData {
   return {
     message_id: messageId,
-    status: "acknowledged",
+    status: toProgressStatus(action),
     actor: event.data.operator ? {
       type: "user",
       id: event.data.operator
     } : undefined,
-    action_type: "acknowledge",
+    action_type: action,
     action_value: event.data.action?.value,
     updated_at: updatedAt
   };
+}
+
+function readProgressAction(actionType: FeishuActionType | undefined): CollaborationProgressActionType | undefined {
+  if (actionType === "acknowledge" || actionType === "claim") {
+    return actionType;
+  }
+  return undefined;
+}
+
+function toProgressStatus(action: CollaborationProgressActionType): CollaborationProgressStatus {
+  if (action === "claim") {
+    return "investigating";
+  }
+  return "acknowledged";
 }
 
 function toProgressUpdatedEvent(
