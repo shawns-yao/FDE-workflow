@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { loadFdeRuntimeConfig } from "../config/env.js";
 import type { Environment } from "../common/contracts.js";
 import { createId } from "../common/ids.js";
+import { LocalArtifactStore, type ArtifactStore } from "../common/artifact-store.js";
 import { CollaborationEventConsumer } from "../agents/collaboration/collaboration-event-consumer.js";
 import { MemoryEventArchiveRepository, type EventArchiveRepository } from "../events/archive.js";
 import type { EventBroker } from "../events/broker.js";
@@ -28,6 +29,7 @@ export interface FdeServiceRuntimeOptions {
   archiveRepository?: EventArchiveRepository;
   feishuConnector?: IMConnectorService;
   feishuLongConnection?: FeishuLongConnectionClientLike;
+  artifactStore?: ArtifactStore;
   messages?: ZhMessages;
 }
 
@@ -85,7 +87,8 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
     broker,
     idempotencyStore,
     {
-      escalationTarget: readEscalationTargetFromEnv(env)
+      escalationTarget: readEscalationTargetFromEnv(env),
+      artifactStore: readCollaborationProgressArtifactStore(env, options.artifactStore)
     }
   );
   let collaborationConsumerStarted = false;
@@ -198,6 +201,13 @@ function readEscalationTargetFromEnv(env: NodeJS.ProcessEnv): { target_type: Fei
     target_type: readFeishuTargetType(env.FEISHU_ESCALATION_TARGET_TYPE),
     target_id: targetId
   };
+}
+
+function readCollaborationProgressArtifactStore(env: NodeJS.ProcessEnv, artifactStore: ArtifactStore | undefined): ArtifactStore | undefined {
+  if (env.FDE_COLLABORATION_PROGRESS_ARTIFACTS_ENABLED !== "true") {
+    return undefined;
+  }
+  return artifactStore ?? new LocalArtifactStore(env.FDE_ARTIFACT_ROOT?.trim() || ".");
 }
 
 function readFeishuTargetType(value: string | undefined): FeishuTargetType {

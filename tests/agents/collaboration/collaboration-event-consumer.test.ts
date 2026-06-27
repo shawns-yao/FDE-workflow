@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { ArtifactRef } from "../../../src/common/contracts.js";
+import type { ArtifactStore, ArtifactWriteInput } from "../../../src/common/artifact-store.js";
 import { MemoryEventArchiveRepository } from "../../../src/events/archive.js";
 import type { DeliveryContext, EventBroker, EventHandler, SubscribeOptions } from "../../../src/events/broker.js";
 import type { CloudEvent } from "../../../src/events/cloudevent.js";
@@ -210,6 +212,32 @@ test("collaboration event consumer records sent escalation notifications as esca
   assert.equal(escalationProgress.updated_at, "2026-06-27T04:40:00.000Z");
 });
 
+test("collaboration event consumer writes progress record artifact when configured", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const artifactStore = new CapturingArtifactStore();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T04:50:00.000Z"),
+    artifactStore
+  });
+
+  await consumer.start();
+  await broker.publish(notificationSentEvent("evt-notification-sent-artifact-001"));
+
+  assert.equal(artifactStore.writes.length, 1);
+  assert.equal(artifactStore.writes[0].artifact_uri, "artifacts/collaboration/ntf-sent-001/progress-record.json");
+  assert.equal(artifactStore.writes[0].artifact_type, "progress_record");
+  assert.equal(artifactStore.writes[0].content_type, "application/json");
+  assert.equal((artifactStore.writes[0].content as CollaborationProgressUpdatedData).status, "unread");
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.progress_record_artifact_uri, "artifacts/collaboration/ntf-sent-001/progress-record.json");
+});
+
 test("collaboration event consumer triggers escalation on notification timeout", async () => {
   const broker = new CapturingBroker();
   const idempotencyStore = new MemoryIdempotencyStore();
@@ -409,6 +437,27 @@ class CapturingFeishuConnector implements IMConnectorService {
       trace_id: input.trace_id,
       run_id: input.run_id
     };
+  }
+}
+
+class CapturingArtifactStore implements ArtifactStore {
+  readonly writes: ArtifactWriteInput[] = [];
+
+  async write(input: ArtifactWriteInput): Promise<ArtifactRef> {
+    this.writes.push(input);
+    return {
+      artifact_id: "artifact-progress-001",
+      artifact_uri: input.artifact_uri ?? "artifacts/runs/unscoped/progress-record.json",
+      artifact_type: input.artifact_type,
+      content_type: input.content_type,
+      sha256: "sha256",
+      size_bytes: 1,
+      created_at: "2026-06-27T04:50:00.000Z"
+    };
+  }
+
+  async read(): Promise<Buffer> {
+    return Buffer.from("");
   }
 }
 

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
+import type { ArtifactRef } from "../../src/common/contracts.js";
+import type { ArtifactStore, ArtifactWriteInput } from "../../src/common/artifact-store.js";
 import { createFdeServiceRuntime } from "../../src/app/service-runtime.js";
 import type { IMConnectorService } from "../../src/connectors/feishu/connector.js";
 import type { FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "../../src/connectors/feishu/types.js";
@@ -217,6 +219,32 @@ test("fde service runtime wires collaboration escalation default target from env
   assert.equal(connector.cards[0].card_type, "escalation_notice");
 });
 
+test("fde service runtime wires collaboration progress artifact store from env", async () => {
+  const broker = new MemoryEventBroker();
+  const connector = new CapturingFeishuConnector();
+  const artifactStore = new CapturingArtifactStore();
+  const runtime = createFdeServiceRuntime({
+    env: {
+      FDE_ENVIRONMENT: "dev",
+      FDE_EVENT_BACKEND: "memory",
+      FEISHU_MODE: "openapi_bot",
+      FEISHU_EVENT_MODE: "disabled",
+      FEISHU_TEST_CHAT_ID: "oc_test",
+      FDE_COLLABORATION_PROGRESS_ARTIFACTS_ENABLED: "true"
+    },
+    broker,
+    feishuConnector: connector,
+    artifactStore
+  });
+
+  await runtime.startFeishuEventIngress();
+  await broker.publish(collaborationNotificationSentEvent());
+
+  assert.equal(artifactStore.writes.length, 1);
+  assert.equal(artifactStore.writes[0].artifact_type, "progress_record");
+  assert.equal(artifactStore.writes[0].artifact_uri, "artifacts/collaboration/ntf-runtime-sent-001/progress-record.json");
+});
+
 function listen(server: ReturnType<typeof createFdeServiceRuntime>["server"]): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -306,6 +334,27 @@ class CapturingFeishuLongConnection {
   }
 }
 
+class CapturingArtifactStore implements ArtifactStore {
+  readonly writes: ArtifactWriteInput[] = [];
+
+  async write(input: ArtifactWriteInput): Promise<ArtifactRef> {
+    this.writes.push(input);
+    return {
+      artifact_id: "artifact-runtime-progress-001",
+      artifact_uri: input.artifact_uri ?? "artifacts/runs/unscoped/progress-record.json",
+      artifact_type: input.artifact_type,
+      content_type: input.content_type,
+      sha256: "sha256",
+      size_bytes: 1,
+      created_at: "2026-06-27T00:00:00.000Z"
+    };
+  }
+
+  async read(): Promise<Buffer> {
+    return Buffer.from("");
+  }
+}
+
 function feishuActionEvent(): CloudEvent<FeishuCallbackEvent> {
   return {
     specversion: "1.0",
@@ -334,6 +383,30 @@ function feishuActionEvent(): CloudEvent<FeishuCallbackEvent> {
       correlation_id: "corr-runtime-ack-001",
       trace_id: "trace-runtime-ack-001",
       run_id: "run-runtime-ack-001"
+    }
+  };
+}
+
+function collaborationNotificationSentEvent(): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id: "evt-runtime-notification-sent-001",
+    source: "collaboration",
+    type: "collaboration.notification.sent",
+    subject: "notification/ntf-runtime-sent-001",
+    time: "2026-06-27T04:20:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-runtime-sent-001",
+    trace_id: "trace-runtime-sent-001",
+    run_id: "run-runtime-sent-001",
+    application: "fde-workstation",
+    environment: "dev",
+    data: {
+      notification_id: "ntf-runtime-sent-001",
+      status: "sent",
+      message_id: "om_runtime_sent_001",
+      target_id: "oc_target",
+      sent_at: "2026-06-27T04:20:00.000Z"
     }
   };
 }

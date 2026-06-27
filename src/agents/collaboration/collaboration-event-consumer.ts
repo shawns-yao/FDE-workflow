@@ -1,4 +1,5 @@
 import { createId } from "../../common/ids.js";
+import type { ArtifactStore } from "../../common/artifact-store.js";
 import type { IMConnectorService } from "../../connectors/feishu/connector.js";
 import type { FeishuActionType, FeishuCallbackEvent, FeishuTargetType, SendCardResult } from "../../connectors/feishu/types.js";
 import type { EventBroker } from "../../events/broker.js";
@@ -12,6 +13,7 @@ export interface CollaborationEventConsumerOptions {
   max_attempts?: number;
   now?: () => Date;
   escalationTarget?: CollaborationEscalationTarget;
+  artifactStore?: Pick<ArtifactStore, "write">;
 }
 
 export interface CollaborationEscalationTarget {
@@ -32,6 +34,7 @@ export interface CollaborationProgressUpdatedData {
   action_value?: string;
   latest_reply?: string;
   reply_effectiveness?: CollaborationReplyEffectiveness;
+  progress_record_artifact_uri?: string;
   updated_at: string;
 }
 
@@ -148,7 +151,7 @@ export class CollaborationEventConsumer {
         trace_id: event.trace_id,
         run_id: event.run_id
       });
-      await this.broker.publish(toProgressUpdatedEvent(event, progress));
+      await this.publishProgressUpdated(event, progress);
       await this.idempotencyStore.set(idempotencyKey, "processed");
     } catch (error) {
       await this.idempotencyStore.set(idempotencyKey, "failed");
@@ -164,7 +167,7 @@ export class CollaborationEventConsumer {
 
     const updatedAt = this.now().toISOString();
     const progress = toReplyProgressUpdatedData(event, latestReply, updatedAt);
-    await this.broker.publish(toProgressUpdatedEvent(event, progress));
+    await this.publishProgressUpdated(event, progress);
   }
 
   private async handleNotificationSent(event: CloudEvent<CollaborationNotificationResultData>): Promise<void> {
@@ -185,7 +188,7 @@ export class CollaborationEventConsumer {
     try {
       const updatedAt = this.now().toISOString();
       const progress = toNotificationSentProgressUpdatedData(event, progressMessageId, progressStatus, updatedAt);
-      await this.broker.publish(toProgressUpdatedEvent(event, progress));
+      await this.publishProgressUpdated(event, progress);
       await this.idempotencyStore.set(idempotencyKey, "processed");
     } catch (error) {
       await this.idempotencyStore.set(idempotencyKey, "failed");
@@ -209,7 +212,7 @@ export class CollaborationEventConsumer {
     const updatedAt = this.now().toISOString();
     try {
       const progress = toTimeoutProgressUpdatedData(event, messageId, updatedAt);
-      await this.broker.publish(toProgressUpdatedEvent(event, progress));
+      await this.publishProgressUpdated(event, progress);
       await this.broker.publish(toEscalationTriggeredEvent(event, toEscalationTriggeredData(event, messageId, updatedAt)));
       await this.idempotencyStore.set(idempotencyKey, "processed");
     } catch (error) {
@@ -257,6 +260,32 @@ export class CollaborationEventConsumer {
       await this.idempotencyStore.set(idempotencyKey, "failed");
       throw error;
     }
+  }
+
+  private async publishProgressUpdated(
+    event: CloudEvent<FeishuCallbackEvent | CollaborationNotificationResultData | CollaborationNotificationTimeoutData>,
+    progress: CollaborationProgressUpdatedData
+  ): Promise<void> {
+    const progressWithArtifact = await this.writeProgressRecord(progress);
+    await this.broker.publish(toProgressUpdatedEvent(event, progressWithArtifact));
+  }
+
+  private async writeProgressRecord(progress: CollaborationProgressUpdatedData): Promise<CollaborationProgressUpdatedData> {
+    if (!this.options.artifactStore) {
+      return progress;
+    }
+
+    const artifact = await this.options.artifactStore.write({
+      artifact_uri: progressRecordArtifactUri(progress),
+      artifact_type: "progress_record",
+      content_type: "application/json",
+      content: progress,
+      excerpt: `${progress.message_id} ${progress.status}`
+    });
+    return {
+      ...progress,
+      progress_record_artifact_uri: artifact.artifact_uri
+    };
   }
 }
 
@@ -472,6 +501,15 @@ function collaborationTimeoutKey(notificationId: string | undefined, messageId: 
 
 function collaborationNotificationSentKey(notificationId: string | undefined, messageId: string, status: CollaborationProgressStatus): string {
   return `collaboration:notification-sent:${notificationId?.trim() || messageId}:${status}:${messageId}`;
+}
+
+function progressRecordArtifactUri(progress: CollaborationProgressUpdatedData): string {
+  const scope = toArtifactSegment(progress.notification_id?.trim() || progress.message_id);
+  return `artifacts/collaboration/${scope}/progress-record.json`;
+}
+
+function toArtifactSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/gu, "_");
 }
 
 function collaborationEscalationSendKey(
