@@ -64,7 +64,7 @@ export interface CollaborationNotificationResultData {
   error?: SendCardResult["error"];
 }
 
-export type CollaborationProgressStatus = "unread" | "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation";
+export type CollaborationProgressStatus = "unread" | "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation" | "escalated";
 export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
 export type CollaborationReplyEffectiveness = "effective" | "ineffective";
 type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationResultData | CollaborationNotificationTimeoutData | CollaborationEscalationTriggeredData;
@@ -172,8 +172,10 @@ export class CollaborationEventConsumer {
     if (!messageId) {
       return;
     }
+    const progressMessageId = event.data.escalation_message_id?.trim() || messageId;
+    const progressStatus: CollaborationProgressStatus = event.data.escalation_message_id?.trim() ? "escalated" : "unread";
 
-    const idempotencyKey = collaborationNotificationSentKey(event.data.notification_id, messageId);
+    const idempotencyKey = collaborationNotificationSentKey(event.data.notification_id, progressMessageId, progressStatus);
     const existingState = await this.idempotencyStore.get(idempotencyKey);
     if (existingState === "processed" || existingState === "processing") {
       return;
@@ -182,7 +184,7 @@ export class CollaborationEventConsumer {
     await this.idempotencyStore.set(idempotencyKey, "processing");
     try {
       const updatedAt = this.now().toISOString();
-      const progress = toNotificationSentProgressUpdatedData(event, messageId, updatedAt);
+      const progress = toNotificationSentProgressUpdatedData(event, progressMessageId, progressStatus, updatedAt);
       await this.broker.publish(toProgressUpdatedEvent(event, progress));
       await this.idempotencyStore.set(idempotencyKey, "processed");
     } catch (error) {
@@ -322,12 +324,13 @@ function toReplyProgressUpdatedData(
 function toNotificationSentProgressUpdatedData(
   event: CloudEvent<CollaborationNotificationResultData>,
   messageId: string,
+  status: Extract<CollaborationProgressStatus, "unread" | "escalated">,
   updatedAt: string
 ): CollaborationProgressUpdatedData {
   return {
     notification_id: event.data.notification_id,
     message_id: messageId,
-    status: "unread",
+    status,
     updated_at: updatedAt
   };
 }
@@ -467,8 +470,8 @@ function collaborationTimeoutKey(notificationId: string | undefined, messageId: 
   return `collaboration:timeout:${notificationId?.trim() || messageId}`;
 }
 
-function collaborationNotificationSentKey(notificationId: string | undefined, messageId: string): string {
-  return `collaboration:notification-sent:${notificationId?.trim() || messageId}`;
+function collaborationNotificationSentKey(notificationId: string | undefined, messageId: string, status: CollaborationProgressStatus): string {
+  return `collaboration:notification-sent:${notificationId?.trim() || messageId}:${status}:${messageId}`;
 }
 
 function collaborationEscalationSendKey(

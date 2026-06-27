@@ -286,6 +286,17 @@
 - **验证记录**：新增聚焦测试覆盖通知发送成功后生成 `unread` 进度，以及同一通知重复发送事件不重复生成进度。
 - **剩余细节**：未实现持久化 `progress-record.json`，日报聚合仍未接入该进度事件；服务器联调尚未验证真实通知发送事件进入该链路。
 
+### DONE-20260627-14：升级通知发送成功进入已升级进度
+
+- **状态**：已完成本地代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
+- **说明**：Collaboration Event Consumer 处理 `collaboration.notification.sent` 时，如果事件包含 `escalation_message_id`，会将进度标记为 `status=escalated`，并把进度 `message_id` 指向原始被升级的消息，而不是新发送的升级卡片消息。普通通知发送仍进入 `status=unread`。
+- **幂等策略**：通知发送进度幂等键增加最终进度状态和进度消息 ID，避免同一 `notification_id` 的普通通知未读记录吞掉后续升级通知已升级记录。
+- **验证记录**：新增聚焦测试覆盖同一通知先进入 `unread`，再因升级通知发送成功进入 `escalated`。
+- **剩余细节**：未实现持久化 `progress-record.json`，日报聚合仍未接入 `escalated` 进度事件；服务器联调尚未验证真实升级通知发送事件进入该链路。
+
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
 - **状态**：已完成

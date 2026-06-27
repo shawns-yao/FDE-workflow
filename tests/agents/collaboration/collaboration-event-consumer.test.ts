@@ -188,6 +188,28 @@ test("collaboration event consumer ignores duplicate sent notification progress 
   assert.equal(broker.published.filter((event) => event.type === "collaboration.progress.updated").length, 1);
 });
 
+test("collaboration event consumer records sent escalation notifications as escalated progress", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T04:40:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(notificationSentEvent("evt-notification-sent-001"));
+  await broker.publish(escalationNotificationSentEvent("evt-escalation-notification-sent-001"));
+
+  const progressEvents = broker.published.filter((event) => event.type === "collaboration.progress.updated");
+  assert.equal(progressEvents.length, 2);
+  const escalationProgress = progressEvents[1].data as CollaborationProgressUpdatedData;
+  assert.equal(escalationProgress.status, "escalated");
+  assert.equal(escalationProgress.notification_id, "ntf-sent-001");
+  assert.equal(escalationProgress.message_id, "om_original_001");
+  assert.equal(escalationProgress.updated_at, "2026-06-27T04:40:00.000Z");
+});
+
 test("collaboration event consumer triggers escalation on notification timeout", async () => {
   const broker = new CapturingBroker();
   const idempotencyStore = new MemoryIdempotencyStore();
@@ -497,6 +519,31 @@ function notificationSentEvent(id: string): CloudEvent<Record<string, unknown>> 
       message_id: "om_sent_001",
       target_id: "oc_target",
       sent_at: "2026-06-27T04:20:00.000Z"
+    }
+  };
+}
+
+function escalationNotificationSentEvent(id: string): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "collaboration",
+    type: "collaboration.notification.sent",
+    subject: "notification/ntf-sent-001/escalation",
+    time: "2026-06-27T04:35:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-escalation-sent-001",
+    trace_id: "trace-escalation-sent-001",
+    run_id: "run-escalation-sent-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      notification_id: "ntf-sent-001",
+      escalation_message_id: "om_original_001",
+      status: "sent",
+      message_id: "om_escalation_sent_001",
+      target_id: "oc_escalation",
+      sent_at: "2026-06-27T04:35:00.000Z"
     }
   };
 }
