@@ -1,11 +1,15 @@
 import type { Environment, ErrorObject } from "../common/contracts.js";
 
 export type FdeEventBackend = "redis" | "memory";
+export type FeishuEventMode = "websocket" | "http_callback" | "disabled";
 
 export interface FdeRuntimeConfig {
   environment: Environment;
   event_backend: FdeEventBackend;
   production: boolean;
+  feishu: {
+    event_mode: FeishuEventMode;
+  };
   http: {
     host: string;
     port: number;
@@ -28,6 +32,9 @@ export function loadFdeRuntimeConfig(env: NodeJS.ProcessEnv = process.env): FdeR
     environment,
     event_backend: eventBackend,
     production: environment === "prod",
+    feishu: {
+      event_mode: readFeishuEventMode(env.FEISHU_EVENT_MODE)
+    },
     http: {
       host: env.FDE_HTTP_HOST?.trim() || "0.0.0.0",
       port: readPort(env.FDE_HTTP_PORT, 3000),
@@ -49,9 +56,12 @@ function validateProductionEnv(env: NodeJS.ProcessEnv, config: FdeRuntimeConfig)
 
   requireKey(env, "FEISHU_APP_ID", missingKeys);
   requireKey(env, "FEISHU_APP_SECRET", missingKeys);
-  requireKey(env, "FEISHU_CALLBACK_VERIFICATION_TOKEN", missingKeys);
-  requireAnyKey(env, ["FEISHU_CALLBACK_SIGNING_SECRET", "FEISHU_CALLBACK_ENCRYPT_KEY"], "FEISHU_CALLBACK_SIGNING_SECRET", missingKeys);
   requireAnyKey(env, ["FEISHU_TEST_CHAT_ID", "FEISHU_DEFAULT_CHAT_ID"], "FEISHU_TEST_CHAT_ID or FEISHU_DEFAULT_CHAT_ID", missingKeys);
+
+  if (config.feishu.event_mode === "http_callback") {
+    requireKey(env, "FEISHU_CALLBACK_VERIFICATION_TOKEN", missingKeys);
+    requireAnyKey(env, ["FEISHU_CALLBACK_SIGNING_SECRET", "FEISHU_CALLBACK_ENCRYPT_KEY"], "FEISHU_CALLBACK_SIGNING_SECRET", missingKeys);
+  }
 
   if (!env.REDIS_URL && !env.REDIS_HOST) {
     missingKeys.push("REDIS_URL");
@@ -119,6 +129,24 @@ function readEventBackend(value: string | undefined): FdeEventBackend {
   throw new FdeRuntimeConfigError({
     code: "CONFIGURATION_INVALID",
     message: "FDE_EVENT_BACKEND must be redis or memory.",
+    retryable: false,
+    severity: "error",
+    details: {
+      value
+    }
+  });
+}
+
+function readFeishuEventMode(value: string | undefined): FeishuEventMode {
+  if (!value) {
+    return "websocket";
+  }
+  if (value === "websocket" || value === "http_callback" || value === "disabled") {
+    return value;
+  }
+  throw new FdeRuntimeConfigError({
+    code: "CONFIGURATION_INVALID",
+    message: "FEISHU_EVENT_MODE must be websocket, http_callback, or disabled.",
     retryable: false,
     severity: "error",
     details: {

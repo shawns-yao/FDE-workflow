@@ -17,15 +17,30 @@ runtime.server.listen(port, host, () => {
     port,
     environment: runtime.environment,
     event_backend: runtime.event_backend,
+    feishu_event_mode: runtime.feishu_event_mode,
     endpoints: [
       "GET /health",
+      "GET /ready",
       "POST /webhook/gitlab",
       "POST /webhook/tekton",
       "POST /webhook/argocd",
       "POST /webhook/kubernetes",
-      "POST /webhook/feishu/callback"
+      "POST /webhook/feishu/callback (FEISHU_EVENT_MODE=http_callback only)"
     ]
   }, null, 2));
+
+  void runtime.startFeishuEventIngress().then(() => {
+    console.log(JSON.stringify({
+      status: "feishu_event_ingress_started",
+      mode: runtime.feishu_event_mode
+    }, null, 2));
+  }).catch((error) => {
+    console.error(JSON.stringify({
+      status: "feishu_event_ingress_failed",
+      mode: runtime.feishu_event_mode,
+      error: toStartupError(error)
+    }, null, 2));
+  });
 
   const startupMessage = process.env.FDE_FEISHU_STARTUP_MESSAGE;
   if (startupMessage) {

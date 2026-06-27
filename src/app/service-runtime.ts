@@ -13,6 +13,7 @@ import { FeishuCallbackHandler } from "../connectors/feishu/callback-handler.js"
 import { createFeishuConnectorFromEnv, type FeishuConnectorEnv } from "../connectors/feishu/connector-factory.js";
 import type { IMConnectorService } from "../connectors/feishu/connector.js";
 import type { FeishuAction, FeishuMention, FeishuMode, SendCardResult } from "../connectors/feishu/types.js";
+import { FeishuLongConnectionClient, type FeishuLongConnectionClientLike } from "../connectors/feishu/long-connection-client.js";
 import { createFdeHttpServer, type FdeReadinessState } from "./fde-http-server.js";
 
 export type FdeEventBackend = "redis" | "memory";
@@ -22,6 +23,7 @@ export interface FdeServiceRuntimeOptions {
   broker?: EventBroker;
   archiveRepository?: EventArchiveRepository;
   feishuConnector?: IMConnectorService;
+  feishuLongConnection?: FeishuLongConnectionClientLike;
 }
 
 export interface FdeServiceRuntime {
@@ -29,6 +31,8 @@ export interface FdeServiceRuntime {
   environment: Environment;
   event_backend: FdeEventBackend;
   config: ReturnType<typeof loadFdeRuntimeConfig>;
+  feishu_event_mode: ReturnType<typeof loadFdeRuntimeConfig>["feishu"]["event_mode"];
+  startFeishuEventIngress(): Promise<void>;
   sendFeishuTextMessage(message: string): Promise<SendCardResult>;
   close(): Promise<void>;
 }
@@ -60,6 +64,14 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
     ingress,
     feishuCallback
   });
+  const feishuLongConnection = runtimeConfig.feishu.event_mode === "websocket"
+    ? options.feishuLongConnection ?? new FeishuLongConnectionClient({
+      appId: env.FEISHU_APP_ID ?? "",
+      appSecret: env.FEISHU_APP_SECRET ?? "",
+      environment,
+      eventPublisher
+    })
+    : undefined;
   const server = createFdeHttpServer({
     environment,
     eventHandler,
@@ -73,6 +85,10 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
     environment,
     config: runtimeConfig,
     event_backend: options.broker ? "memory" : eventBackend,
+    feishu_event_mode: runtimeConfig.feishu.event_mode,
+    async startFeishuEventIngress() {
+      await feishuLongConnection?.start();
+    },
     async sendFeishuTextMessage(message) {
       const targetId = env.FEISHU_STARTUP_MESSAGE_CHAT_ID ?? env.FEISHU_TEST_CHAT_ID ?? env.FEISHU_DEFAULT_CHAT_ID;
       if (!targetId) {
@@ -130,6 +146,7 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
       });
     },
     async close() {
+      await feishuLongConnection?.close();
       await closeServer(server);
       await redisInfrastructure?.close();
     }

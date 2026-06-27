@@ -17,8 +17,6 @@ test("loadFdeRuntimeConfig rejects prod startup when required secrets are missin
       assert.deepEqual(error.error.details?.["missing_keys"], [
         "FEISHU_APP_ID",
         "FEISHU_APP_SECRET",
-        "FEISHU_CALLBACK_VERIFICATION_TOKEN",
-        "FEISHU_CALLBACK_SIGNING_SECRET",
         "FEISHU_TEST_CHAT_ID or FEISHU_DEFAULT_CHAT_ID"
       ]);
       return true;
@@ -36,10 +34,9 @@ test("loadFdeRuntimeConfig reads production http and redis settings", () => {
     FDE_HTTP_REQUEST_TIMEOUT_MS: "3000",
     REDIS_URL: "redis://redis:6379/0",
     FEISHU_MODE: "openapi_bot",
+    FEISHU_EVENT_MODE: "websocket",
     FEISHU_APP_ID: "cli_xxx",
     FEISHU_APP_SECRET: "secret",
-    FEISHU_CALLBACK_VERIFICATION_TOKEN: "token",
-    FEISHU_CALLBACK_SIGNING_SECRET: "signing-secret",
     FEISHU_TEST_CHAT_ID: "oc_xxx"
   });
 
@@ -49,4 +46,28 @@ test("loadFdeRuntimeConfig reads production http and redis settings", () => {
   assert.equal(config.http.port, 3412);
   assert.equal(config.http.max_body_bytes, 2048);
   assert.equal(config.http.request_timeout_ms, 3000);
+  assert.equal(config.feishu.event_mode, "websocket");
+});
+
+test("loadFdeRuntimeConfig requires callback credentials only in Feishu http callback mode", () => {
+  assert.throws(
+    () => loadFdeRuntimeConfig({
+      FDE_ENVIRONMENT: "prod",
+      FDE_EVENT_BACKEND: "redis",
+      REDIS_URL: "redis://redis:6379/0",
+      FEISHU_MODE: "openapi_bot",
+      FEISHU_EVENT_MODE: "http_callback",
+      FEISHU_APP_ID: "cli_xxx",
+      FEISHU_APP_SECRET: "secret",
+      FEISHU_TEST_CHAT_ID: "oc_xxx"
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof FdeRuntimeConfigError);
+      assert.deepEqual(error.error.details?.["missing_keys"], [
+        "FEISHU_CALLBACK_VERIFICATION_TOKEN",
+        "FEISHU_CALLBACK_SIGNING_SECRET"
+      ]);
+      return true;
+    }
+  );
 });

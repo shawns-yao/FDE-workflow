@@ -4,6 +4,7 @@ export * from "./callback-handler.js";
 export * from "./callback-security.js";
 export * from "./connector-factory.js";
 export * from "./memory-feishu-connector.js";
+export * from "./long-connection-client.js";
 export * from "./openapi-feishu-connector.js";
 export * from "./types.js";
 export * from "./webhook-feishu-connector.js";

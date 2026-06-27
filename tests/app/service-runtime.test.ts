@@ -139,6 +139,31 @@ test("fde service runtime returns structured error when startup mention resoluti
   assert.equal(connector.cards.length, 0);
 });
 
+test("fde service runtime starts and closes Feishu long connection client", async () => {
+  const connector = new CapturingFeishuConnector();
+  const longConnection = new CapturingFeishuLongConnection();
+  const runtime = createFdeServiceRuntime({
+    env: {
+      FDE_ENVIRONMENT: "dev",
+      FDE_EVENT_BACKEND: "memory",
+      FEISHU_MODE: "openapi_bot",
+      FEISHU_EVENT_MODE: "websocket",
+      FEISHU_APP_ID: "cli_xxx",
+      FEISHU_APP_SECRET: "secret",
+      FEISHU_TEST_CHAT_ID: "oc_test"
+    },
+    feishuConnector: connector,
+    feishuLongConnection: longConnection
+  });
+
+  await runtime.startFeishuEventIngress();
+  await runtime.close();
+
+  assert.equal(runtime.feishu_event_mode, "websocket");
+  assert.equal(longConnection.started, 1);
+  assert.equal(longConnection.closed, 1);
+});
+
 function listen(server: ReturnType<typeof createFdeServiceRuntime>["server"]): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -211,5 +236,18 @@ class CapturingFeishuConnector implements IMConnectorService {
       throw this.chatMembersError;
     }
     return this.chatMembers.slice(0, input.limit);
+  }
+}
+
+class CapturingFeishuLongConnection {
+  started = 0;
+  closed = 0;
+
+  async start(): Promise<void> {
+    this.started += 1;
+  }
+
+  async close(): Promise<void> {
+    this.closed += 1;
   }
 }
