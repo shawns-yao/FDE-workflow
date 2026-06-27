@@ -1,6 +1,6 @@
 import { createId } from "../../common/ids.js";
 import type { IMConnectorService } from "../../connectors/feishu/connector.js";
-import type { FeishuActionType, FeishuCallbackEvent } from "../../connectors/feishu/types.js";
+import type { FeishuActionType, FeishuCallbackEvent, FeishuTargetType, SendCardResult } from "../../connectors/feishu/types.js";
 import type { EventBroker } from "../../events/broker.js";
 import type { CloudEvent } from "../../events/cloudevent.js";
 import type { EventSubscriber } from "../../events/event-subscriber.js";
@@ -43,20 +43,32 @@ export interface CollaborationEscalationTriggeredData {
   status: "needs_escalation";
   reason_code: "notification_timeout";
   reason?: string;
+  target_type?: FeishuTargetType;
+  target_id?: string;
   triggered_at: string;
+}
+
+export interface CollaborationNotificationResultData {
+  notification_id?: string;
+  escalation_message_id?: string;
+  status: "sent" | "failed";
+  message_id?: string;
+  target_id: string;
+  sent_at?: string;
+  error?: SendCardResult["error"];
 }
 
 export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation";
 export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
 export type CollaborationReplyEffectiveness = "effective" | "ineffective";
-type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationTimeoutData;
+type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationTimeoutData | CollaborationEscalationTriggeredData;
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
 
   constructor(
     private readonly subscriber: Pick<EventSubscriber, "subscribe">,
-    private readonly connector: Pick<IMConnectorService, "updateCard">,
+    private readonly connector: Pick<IMConnectorService, "sendCard" | "updateCard">,
     private readonly broker: Pick<EventBroker, "publish">,
     private readonly idempotencyStore: IdempotencyStore,
     private readonly options: CollaborationEventConsumerOptions = {}
@@ -66,8 +78,12 @@ export class CollaborationEventConsumer {
 
   async start(): Promise<void> {
     await this.subscriber.subscribe<CollaborationConsumerEventData>(
-      ["feishu.card.action_clicked", "feishu.message.replied", "collaboration.notification.timeout"],
+      ["feishu.card.action_clicked", "feishu.message.replied", "collaboration.notification.timeout", "collaboration.escalation.triggered"],
       async (event) => {
+        if (event.type === "collaboration.escalation.triggered") {
+          await this.handleEscalationTriggered(event as CloudEvent<CollaborationEscalationTriggeredData>);
+          return;
+        }
         if (event.type === "collaboration.notification.timeout") {
           await this.handleNotificationTimeout(event as CloudEvent<CollaborationNotificationTimeoutData>);
           return;
@@ -164,6 +180,32 @@ export class CollaborationEventConsumer {
       await this.idempotencyStore.set(idempotencyKey, "failed");
       throw error;
     }
+  }
+
+  private async handleEscalationTriggered(event: CloudEvent<CollaborationEscalationTriggeredData>): Promise<void> {
+    const targetId = event.data.target_id?.trim();
+    if (!event.data.target_type || !targetId) {
+      return;
+    }
+
+    const result = await this.connector.sendCard({
+      mode: "openapi_bot",
+      target_type: event.data.target_type,
+      target_id: targetId,
+      card_type: "escalation_notice",
+      title: "FDE Workstation Escalation",
+      summary: `Escalation required: ${event.data.reason_code}`,
+      severity: "high",
+      actions: [],
+      data: {
+        ...event.data
+      },
+      correlation_id: event.correlation_id,
+      trace_id: event.trace_id,
+      run_id: event.run_id
+    });
+
+    await this.broker.publish(toNotificationResultEvent(event, result));
   }
 }
 
@@ -298,6 +340,37 @@ function toEscalationTriggeredEvent(
     application: event.application,
     environment: event.environment,
     data: escalation
+  };
+}
+
+function toNotificationResultEvent(
+  event: CloudEvent<CollaborationEscalationTriggeredData>,
+  result: SendCardResult
+): CloudEvent<CollaborationNotificationResultData> {
+  const sent = result.status === "sent";
+  const data: CollaborationNotificationResultData = {
+    notification_id: event.data.notification_id,
+    escalation_message_id: event.data.message_id,
+    status: result.status,
+    message_id: result.message_id,
+    target_id: result.target_id,
+    sent_at: result.sent_at,
+    error: result.error
+  };
+  return {
+    specversion: "1.0",
+    id: createId("evt"),
+    source: "collaboration",
+    type: sent ? "collaboration.notification.sent" : "collaboration.notification.failed",
+    subject: `notification/${event.data.notification_id ?? event.data.message_id}/escalation`,
+    time: result.sent_at ?? new Date().toISOString(),
+    datacontenttype: "application/json",
+    correlation_id: event.correlation_id,
+    trace_id: event.trace_id,
+    run_id: event.run_id,
+    application: event.application,
+    environment: event.environment,
+    data
   };
 }
 

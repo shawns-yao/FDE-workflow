@@ -8,7 +8,7 @@ import type { EventType } from "../../../src/events/event-types.js";
 import { MemoryIdempotencyStore } from "../../../src/events/idempotency-store.js";
 import type { IMConnectorService } from "../../../src/connectors/feishu/connector.js";
 import type { FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "../../../src/connectors/feishu/types.js";
-import { CollaborationEventConsumer, type CollaborationEscalationTriggeredData, type CollaborationProgressUpdatedData } from "../../../src/agents/collaboration/collaboration-event-consumer.js";
+import { CollaborationEventConsumer, type CollaborationEscalationTriggeredData, type CollaborationNotificationResultData, type CollaborationProgressUpdatedData } from "../../../src/agents/collaboration/collaboration-event-consumer.js";
 
 test("collaboration event consumer acknowledges a Feishu card action", async () => {
   const broker = new CapturingBroker();
@@ -200,6 +200,33 @@ test("collaboration event consumer ignores duplicate notification timeouts", asy
   assert.equal(broker.published.filter((event) => event.type === "collaboration.escalation.triggered").length, 1);
 });
 
+test("collaboration event consumer sends escalation notices to Feishu target", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore);
+
+  await consumer.start();
+  await broker.publish(escalationTriggeredEvent("evt-escalation-001"));
+
+  assert.equal(connector.cards.length, 1);
+  assert.equal(connector.cards[0].mode, "openapi_bot");
+  assert.equal(connector.cards[0].target_type, "chat");
+  assert.equal(connector.cards[0].target_id, "oc_escalation");
+  assert.equal(connector.cards[0].card_type, "escalation_notice");
+  assert.equal(connector.cards[0].data["reason_code"], "notification_timeout");
+
+  const sentEvent = broker.published.find((event) => event.type === "collaboration.notification.sent");
+  assert.ok(sentEvent);
+  const sentData = sentEvent.data as CollaborationNotificationResultData;
+  assert.equal(sentEvent.source, "collaboration");
+  assert.equal(sentEvent.subject, "notification/ntf-timeout-001/escalation");
+  assert.equal(sentData.status, "sent");
+  assert.equal(sentData.message_id, "om_sent");
+  assert.equal(sentData.target_id, "oc_escalation");
+});
+
 class CapturingBroker implements EventBroker {
   private readonly subscriptions: Array<{ eventTypes: EventType[]; handler: EventHandler; options: SubscribeOptions }> = [];
   readonly published: CloudEvent[] = [];
@@ -238,9 +265,11 @@ class CapturingBroker implements EventBroker {
 }
 
 class CapturingFeishuConnector implements IMConnectorService {
+  readonly cards: SendCardInput[] = [];
   readonly updates: UpdateCardInput[] = [];
 
   async sendCard(input: SendCardInput): Promise<SendCardResult> {
+    this.cards.push(input);
     return {
       status: "sent",
       message_id: "om_sent",
@@ -368,6 +397,34 @@ function timeoutEvent(id: string): CloudEvent<Record<string, unknown>> {
       message_id: "om_timeout_001",
       diagnosis_id: "diag-timeout-001",
       timeout_reason: "no_response"
+    }
+  };
+}
+
+function escalationTriggeredEvent(id: string): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "collaboration",
+    type: "collaboration.escalation.triggered",
+    subject: "notification/ntf-timeout-001/escalation",
+    time: "2026-06-27T05:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-escalation-001",
+    trace_id: "trace-escalation-001",
+    run_id: "run-escalation-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      notification_id: "ntf-timeout-001",
+      message_id: "om_timeout_001",
+      diagnosis_id: "diag-timeout-001",
+      status: "needs_escalation",
+      reason_code: "notification_timeout",
+      reason: "no_response",
+      target_type: "chat",
+      target_id: "oc_escalation",
+      triggered_at: "2026-06-27T05:00:00.000Z"
     }
   };
 }

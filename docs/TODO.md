@@ -248,10 +248,20 @@
 - **提出时间**：2026-06-27
 - **完成时间**：2026-06-27
 - **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
-- **说明**：Collaboration Event Consumer 订阅 `collaboration.notification.timeout`。收到超时事件后，如果包含 `message_id`，会发布 `collaboration.progress.updated` 并标记 `status=needs_escalation`，同时发布 `collaboration.escalation.triggered`，`reason_code=notification_timeout`。该阶段只生成升级事件，不直接发送新的飞书升级通知。
+- **说明**：Collaboration Event Consumer 订阅 `collaboration.notification.timeout`。收到超时事件后，如果包含 `message_id`，会发布 `collaboration.progress.updated` 并标记 `status=needs_escalation`，同时发布 `collaboration.escalation.triggered`，`reason_code=notification_timeout`。
 - **幂等策略**：按 `notification_id` 优先、否则按 `message_id` 生成业务幂等键，重复超时事件不会重复发布进度事件或升级事件。
 - **验证记录**：新增聚焦测试覆盖超时触发升级事件，以及同一通知重复超时不重复升级。
-- **剩余细节**：升级策略配置、升级目标选择、升级通知发送和完整协同状态机仍未实现。
+- **剩余细节**：升级策略配置、升级目标选择和完整协同状态机仍未实现。
+
+### DONE-20260627-11：升级事件发送飞书升级通知
+
+- **状态**：已完成最小代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
+- **说明**：Collaboration Event Consumer 订阅 `collaboration.escalation.triggered`。当升级事件携带 `target_type` 和 `target_id` 时，消费者会调用飞书连接器 `sendCard` 发送 `escalation_notice` 卡片，并发布 `collaboration.notification.sent` 或 `collaboration.notification.failed`。当前只消费事件中显式给出的升级目标，不自行选择目标。
+- **验证记录**：新增聚焦测试覆盖带目标升级事件发送飞书升级卡片，并发布 `collaboration.notification.sent`。
+- **剩余细节**：升级目标选择、升级策略配置、升级发送失败重试策略细化、升级卡片正式模板和完整协同状态机仍未实现。
 
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
