@@ -99,6 +99,34 @@ test("feishu callback handler publishes action callback as CloudEvent", async ()
   assert.equal(broker.events[0].correlation_id, "corr-feishu");
 });
 
+test("feishu callback handler publishes message reply with latest reply text", async () => {
+  const broker = new CapturingBroker();
+  const handler = new FeishuCallbackHandler(
+    new MemoryFeishuConnector(),
+    new EventPublisherService(broker, new MemoryEventArchiveRepository()),
+    {}
+  );
+
+  const result = await handler.handle({
+    rawBody: JSON.stringify({
+      message_id: "msg-reply-1",
+      operator: "ou-user",
+      content: "{\"text\":\"我正在处理这个问题\"}"
+    }),
+    headers: {},
+    environment: "test",
+    correlation_id: "corr-feishu",
+    trace_id: "trace-feishu",
+    run_id: "run-feishu"
+  });
+
+  assert.equal(result.accepted, true);
+  assert.equal(result.callback?.type, "feishu.message.replied");
+  assert.equal(result.callback?.latest_reply, "我正在处理这个问题");
+  assert.equal(broker.events.length, 1);
+  assert.equal(broker.events[0].type, "feishu.message.replied");
+});
+
 class CapturingBroker implements EventBroker {
   readonly events: CloudEvent[] = [];
 

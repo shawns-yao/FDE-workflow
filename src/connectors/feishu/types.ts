@@ -117,6 +117,7 @@ export interface FeishuCallbackEvent {
   environment: Environment;
   action?: FeishuAction;
   operator?: string;
+  latest_reply?: string;
   raw_callback_excerpt: string;
   correlation_id: string;
   trace_id: string;

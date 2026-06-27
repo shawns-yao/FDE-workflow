@@ -40,6 +40,7 @@ test("normalizes Feishu message receive event into connector callback event", ()
   assert.equal(callback.type, "feishu.message.replied");
   assert.equal(callback.message_id, "om_message");
   assert.equal(callback.operator, "ou_sender");
+  assert.equal(callback.latest_reply, "build status");
   assert.equal(callback.correlation_id, "corr-test");
   assert.match(callback.raw_callback_excerpt, /build status/);
 });

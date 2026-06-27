@@ -20,13 +20,16 @@ export interface CollaborationProgressUpdatedData {
     type: "user";
     id: string;
   };
-  action_type: CollaborationProgressActionType;
+  action_type?: CollaborationProgressActionType;
   action_value?: string;
+  latest_reply?: string;
+  reply_effectiveness?: CollaborationReplyEffectiveness;
   updated_at: string;
 }
 
-export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed";
+export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed" | "ineffective_reply";
 export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
+export type CollaborationReplyEffectiveness = "effective" | "ineffective";
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
@@ -43,8 +46,12 @@ export class CollaborationEventConsumer {
 
   async start(): Promise<void> {
     await this.subscriber.subscribe<FeishuCallbackEvent>(
-      ["feishu.card.action_clicked"],
+      ["feishu.card.action_clicked", "feishu.message.replied"],
       async (event) => {
+        if (event.type === "feishu.message.replied") {
+          await this.handleMessageReplied(event);
+          return;
+        }
         await this.handleCardActionClicked(event);
       },
       {
@@ -98,6 +105,17 @@ export class CollaborationEventConsumer {
       throw error;
     }
   }
+
+  private async handleMessageReplied(event: CloudEvent<FeishuCallbackEvent>): Promise<void> {
+    const latestReply = event.data.latest_reply?.trim();
+    if (!latestReply) {
+      return;
+    }
+
+    const updatedAt = this.now().toISOString();
+    const progress = toReplyProgressUpdatedData(event, latestReply, updatedAt);
+    await this.broker.publish(toProgressUpdatedEvent(event, progress));
+  }
 }
 
 function toProgressUpdatedData(
@@ -117,6 +135,32 @@ function toProgressUpdatedData(
     action_value: event.data.action?.value,
     updated_at: updatedAt
   };
+}
+
+function toReplyProgressUpdatedData(
+  event: CloudEvent<FeishuCallbackEvent>,
+  latestReply: string,
+  updatedAt: string
+): CollaborationProgressUpdatedData {
+  const replyEffectiveness = classifyReply(latestReply);
+  return {
+    message_id: event.data.message_id,
+    status: replyEffectiveness === "effective" ? "investigating" : "ineffective_reply",
+    actor: event.data.operator ? {
+      type: "user",
+      id: event.data.operator
+    } : undefined,
+    latest_reply: latestReply,
+    reply_effectiveness: replyEffectiveness,
+    updated_at: updatedAt
+  };
+}
+
+function classifyReply(reply: string): CollaborationReplyEffectiveness {
+  if (/正在|处理|排查|查看|修复|我来|认领/u.test(reply)) {
+    return "effective";
+  }
+  return "ineffective";
 }
 
 function readProgressAction(actionType: FeishuActionType | undefined): CollaborationProgressActionType | undefined {

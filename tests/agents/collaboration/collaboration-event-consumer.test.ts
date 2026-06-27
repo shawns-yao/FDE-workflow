@@ -106,6 +106,53 @@ test("collaboration event consumer marks a Feishu card action as fixed", async (
   assert.equal(progressData.updated_at, "2026-06-27T02:00:00.000Z");
 });
 
+test("collaboration event consumer marks effective replies as investigating", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T03:00:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(replyEvent("evt-reply-001", "我正在处理这个问题"));
+
+  assert.equal(connector.updates.length, 0);
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "investigating");
+  assert.equal(progressData.latest_reply, "我正在处理这个问题");
+  assert.equal(progressData.reply_effectiveness, "effective");
+  assert.equal(progressData.updated_at, "2026-06-27T03:00:00.000Z");
+});
+
+test("collaboration event consumer marks vague replies as ineffective", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T04:00:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(replyEvent("evt-reply-002", "收到"));
+
+  assert.equal(connector.updates.length, 0);
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "ineffective_reply");
+  assert.equal(progressData.latest_reply, "收到");
+  assert.equal(progressData.reply_effectiveness, "ineffective");
+  assert.equal(progressData.action_type, undefined);
+  assert.equal(progressData.updated_at, "2026-06-27T04:00:00.000Z");
+});
+
 class CapturingBroker implements EventBroker {
   private readonly subscriptions: Array<{ eventTypes: EventType[]; handler: EventHandler; options: SubscribeOptions }> = [];
   readonly published: CloudEvent[] = [];
@@ -223,6 +270,34 @@ function actionEvent(
       correlation_id: "corr-ack-001",
       trace_id: "trace-ack-001",
       run_id: "run-ack-001"
+    }
+  };
+}
+
+function replyEvent(id: string, latestReply: string): CloudEvent<FeishuCallbackEvent> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "feishu",
+    type: "feishu.message.replied",
+    subject: "message/om_reply_001",
+    time: "2026-06-27T00:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-reply-001",
+    trace_id: "trace-reply-001",
+    run_id: "run-reply-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      type: "feishu.message.replied",
+      message_id: "om_reply_001",
+      environment: "prod",
+      operator: "ou_user_001",
+      latest_reply: latestReply,
+      raw_callback_excerpt: "{}",
+      correlation_id: "corr-reply-001",
+      trace_id: "trace-reply-001",
+      run_id: "run-reply-001"
     }
   };
 }

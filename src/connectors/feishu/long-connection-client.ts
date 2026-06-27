@@ -169,6 +169,7 @@ export function normalizeFeishuMessageReceiveEvent(
     message_id: readString(message?.["message_id"]) ?? readString(message?.["open_message_id"]) ?? readString(event["event_id"]) ?? createId("notification"),
     environment: context.environment,
     operator: readString(senderId?.["open_id"]) ?? readString(senderId?.["user_id"]) ?? readString(sender?.["open_id"]),
+    latest_reply: readMessageText(message),
     raw_callback_excerpt: createRawExcerpt(raw),
     correlation_id: context.correlation_id ?? createId("corr"),
     trace_id: context.trace_id ?? createId("trace"),
@@ -247,6 +248,20 @@ function readActionValue(value: unknown): string | undefined {
     return undefined;
   }
   return String(value);
+}
+
+function readMessageText(message: Record<string, unknown> | undefined): string | undefined {
+  const content = readString(message?.["content"]);
+  if (!content) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    const record = readRecord(parsed);
+    return readString(record?.["text"]);
+  } catch {
+    return content;
+  }
 }
 
 function createRawExcerpt(raw: unknown): string {

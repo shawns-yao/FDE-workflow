@@ -75,6 +75,7 @@ export class MemoryFeishuConnector implements IMConnectorService {
       environment: input.environment,
       action: input.raw["action"] as never,
       operator: input.raw["operator"] ? String(input.raw["operator"]) : undefined,
+      latest_reply: readReplyText(input.raw),
       raw_callback_excerpt: rawExcerpt,
       correlation_id: input.correlation_id,
       trace_id: input.trace_id,
@@ -102,4 +103,29 @@ function validateWebhookActions(input: SendCardInput) {
       invalid_actions: invalidActions.map((action) => action.type)
     }
   } as const;
+}
+
+function readReplyText(raw: Record<string, unknown>): string | undefined {
+  const explicit = readString(raw["latest_reply"]) ?? readString(raw["text"]);
+  if (explicit) {
+    return explicit;
+  }
+
+  const content = readString(raw["content"]);
+  if (!content) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return content;
+    }
+    return readString((parsed as Record<string, unknown>)["text"]) ?? content;
+  } catch {
+    return content;
+  }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
