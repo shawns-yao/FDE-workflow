@@ -52,6 +52,34 @@ Pipeline Agent 域
 统一入口：所有 AI 能力都通过智能体运行时标准 API 调用，Pipeline Agent 感知不到底层模型
 ```
 
+### 3.0 Pipeline Skill 与 MCP 工具边界
+
+Pipeline Agent 的 AI 能力通过项目内 `fde-pipeline` Skill 表达。Skill 负责提供工作流知识、Prompt 约束、输入输出 schema、风险口径和推荐工具；MCP 负责把 Tekton、ArgoCD、GitLab、K8s 等外部系统能力暴露为可审计工具。
+
+```text
+skills/fde-pipeline/SKILL.md
+  -> yaml-governance：审查 yaml.diff 和 GitOps 变更计划
+  -> build-fix：分析构建日志并生成修复建议
+  -> delivery-summary：生成交付结果摘要
+
+mcp tools
+  -> tekton：触发构建、查询 PipelineRun、读取 Task 日志
+  -> argocd：查询 Application、触发同步、查询 Operation
+  -> gitlab：读取 MR、diff、pipeline、job
+  -> kubernetes：读取事件、Pod 日志和资源状态
+```
+
+当前 05 主链路不把发布控制权交给模型。Tekton 构建、GitOps 文件落地、Git commit / push、ArgoCD 同步请求仍由确定性代码或业务控制器执行。`fde-pipeline` Skill 只在 YAML Governance、构建失败修复建议和摘要生成等智能检查点中使用。
+
+第一版 YAML Governance 的模型可见工具保持最小化：
+
+```text
+read_file
+list_files
+```
+
+后续如果需要让 Runtime 查询 Tekton 日志或 ArgoCD 状态，只能通过 `permission_profile` 和 `allowed_tools` 显式放行对应 MCP 工具，例如 `mcp__tekton__get_task_logs`、`mcp__argocd__get_application`。触发真实构建和同步这类变更动作默认不暴露给 YAML Governance；必须通过业务 Agent 的确定性流程调用。
+
 ### 3.1 为什么核心链路不用 AI 仍然是 Agent
 
 Pipeline Agent 不是因为“每一步都调用 AI”才成立，而是因为它具备目标驱动、事件消费、状态流转、工具调用、失败处理和智能增强挂载点。
@@ -587,6 +615,8 @@ src/
 
 说明：这里的无头代码运行时不是直接调用 `claude -p` 作为 CLI 子进程，而是使用 `02-智能体运行时.md` 定义的 `code_runtime`，迁移或重写 Claude Code 无头模式中适合 CI / 服务端场景的通用编码能力。当前第一批吸收范围以 YAML diff 审查、只读工作区上下文补充和结构化风险输出为边界。`run_command` 已作为 Runtime 通用内置工具实现，但当前 Pipeline YAML Governance 的 `allowed_tools` 不包含它；自动写入修复和 patch 生成仍属于后续能力。
 
+与 Agentic Skills 的对应关系：`fde-pipeline` Skill 是 Pipeline Agent 的能力包，MCP 工具是外部系统动作入口。Skill 不拥有密钥，不直接调用 SDK，不扩大权限；Runtime 只按本次任务的 profile 和 allowlist 暴露工具。当前联调阶段可先只启用 Skill + 内置只读工具，真实 Tekton / ArgoCD MCP 工具在外部系统联调阶段逐项接入。
+
 ## 13. 与下一步衔接
 
 `06-MR评审智能体.md` 在 MR 阶段提前拦截代码风险。
@@ -626,9 +656,12 @@ FDE_PIPELINE_ARGOCD_API_URL
 FDE_PIPELINE_ARGOCD_TOKEN
 FDE_PIPELINE_ENABLE_YAML_GOVERNANCE=true
 FDE_PIPELINE_ENABLE_BUILD_FIX=true
+FDE_RUNTIME_MCP_SERVERS
 ```
 
 当前 05 完整 AI Pipeline 联调必须启用 `FDE_PIPELINE_ENABLE_YAML_GOVERNANCE=true`，并为 Pipeline Worker 配置 `AgentRuntime` 的 `code_runtime:code_task` 执行器。若只打开开关但没有真实执行器，Pipeline 会返回 `MODEL_NOT_CONFIGURED` 并阻断提交。不开启该开关时，Pipeline 仍可按确定性自动化模式运行，但不满足智能增强验收。
+
+`FDE_RUNTIME_MCP_SERVERS` 只在当前任务显式允许 `mcp__<server>__<tool>` 时生效。当前 YAML Governance 默认不需要 Tekton / ArgoCD MCP 工具；构建失败修复、诊断和协同进度追踪可以在各自 profile 中逐步放行只读或卡片更新工具。
 
 第一版 `code_runtime` 使用 Anthropic Messages API 执行无头 YAML Governance，需要配置：
 

@@ -1,6 +1,6 @@
 # FDE Workstation TODO
 
-**更新时间**：2026-06-25  
+**更新时间**：2026-06-26
 **当前状态**：当前方向已校准为三 Agent + 双 AI 载体 + 底座先行：Pipeline / Diagnosis / Collaboration 三个 Agent，FDE 自研 Agent Runtime 迁移或重写 Claude Code 的通用编码能力，Claude API 用于诊断和协同
 
 ---
@@ -98,6 +98,20 @@
   - Runtime 内部通过 ToolProvider 装配工具池。
   - `permission_profile` 和 `allowed_tools` 是最终裁剪层。
   - 内置工具与 MCP 工具同名时，内置工具优先。
+
+### DONE-20260626-01：Agent Skills 与 MCP 分层参考确认
+
+- **状态**：已确认
+- **提出时间**：2026-06-26
+- **完成时间**：2026-06-26
+- **影响范围**：`docs/implementation/steps/00-基础契约.md`、`docs/implementation/steps/02-智能体运行时.md`、`docs/implementation/steps/05-Pipeline智能体核心.md`
+- **说明**：参考 Agentic Skills 的组织方式后，确认 FDE 也需要 Skill 层和 MCP 工具层，但两者职责不同。Skill 是 Agent 能力包，描述触发条件、领域知识、Prompt、schema、推荐工具和验证方式；MCP 是外部系统工具入口，负责 Tekton、ArgoCD、GitLab、K8s、飞书等系统的可执行动作。
+- **结论**：
+  - Skill 不能保存密钥，不能直接调用 SDK，不能扩大权限。
+  - MCP 工具统一以 `mcp__<server>__<tool>` 暴露给 Runtime。
+  - Runtime 继续按 `permission_profile`、`allowed_tools`、环境策略和 MCP allowlist 裁剪模型可见工具。
+  - 第一批项目内 Skill 为 `fde-pipeline`、`fde-diagnosis`、`fde-collaboration`，不做独立 Skill 市场或动态安装。
+  - Pipeline 主链路的构建、GitOps 写入、Git 提交和 ArgoCD 同步仍由确定性代码执行；Skill 只进入 YAML Governance、构建失败修复建议和摘要生成等智能检查点。
 
 ### DONE-20260618-06：Pipeline AI 检查点与自动化动作边界确认
 
@@ -366,6 +380,50 @@
   - 外部工具调用失败返回标准 `ErrorObject`，并写入 tool trace。（ErrorObject 映射已完成；真实 server trace 待联调）
   - Pipeline / Diagnosis / Collaboration 使用各自权限重新装配工具，不共享工具实例。
 
+### TODO-20260626-01：FDE Agent Skills 目录与 Skill Loader 落地
+
+- **状态**：待实施
+- **提出时间**：2026-06-26
+- **影响范围**：`skills/`、`agent-runtime/skills/`、`src/runtime/`、`schemas/common/agent-skill.schema.json`、`prompts/`、`fixtures/agent-skills/`
+- **说明**：文档已确认 Skill 层。后续需要把 `fde-pipeline`、`fde-diagnosis`、`fde-collaboration` 三个项目内 Skill 落成仓库文件，并实现 Runtime 的 Skill Loader。Skill Loader 负责读取 `SKILL.md`、prompt、schema、fixture 和推荐工具清单，生成 Runtime task 的上下文候选；最终权限仍由 `permission_profile` 和 `allowed_tools` 裁剪。
+- **验收**：
+  - `skills/fde-pipeline/SKILL.md` 能描述 YAML Governance、build-fix 和 delivery-summary。
+  - `skills/fde-diagnosis/SKILL.md` 能描述日志摘要、根因分析和证据引用。
+  - `skills/fde-collaboration/SKILL.md` 能描述通知摘要、回复判断、卡片更新和日报生成。
+  - Runtime 能加载 Skill 上下文，但 Skill 不能直接授予外部工具权限。
+  - 缺失 Skill、schema 或 prompt 时返回标准 `CONFIGURATION_INVALID`。
+
+### TODO-20260626-02：飞书卡片交互最小协同消费者
+
+- **状态**：待实施
+- **提出时间**：2026-06-26
+- **影响范围**：`src/agents/collaboration/`、`src/connectors/feishu/`、`src/events/`、`docs/implementation/steps/14-协同进度追踪.md`
+- **说明**：当前飞书长连接链路已经能把 `card.action.trigger` 标准化为 `feishu.card.action_clicked` 并写入 Redis Streams，但还没有业务消费者处理按钮动作并更新原卡片。下一步先实现最小 Collaboration Agent 消费者：订阅 `feishu.card.action_clicked`，识别 `acknowledge`，调用飞书连接器 `updateCard(message_id)` 把原卡片更新为已确认状态，并发布 `collaboration.progress.updated`。该能力先走确定性代码，不调用 AI。
+- **验收**：
+  - 点击“确认收到”后，服务端消费 `feishu.card.action_clicked`。
+  - 同一条飞书卡片按 `message_id` 更新为已确认状态。
+  - 重复点击满足幂等，不重复写入冲突状态。
+  - 飞书更新失败时返回标准 `ErrorObject`，并进入事件重试或死信路径。
+  - 不依赖公网 HTTP callback，继续支持 SDK 长连接模式。
+
+### TODO-20260626-03：第一批外部 MCP 工具落地顺序
+
+- **状态**：待实施
+- **提出时间**：2026-06-26
+- **影响范围**：`mcp-servers/`、`src/runtime/tools/mcp/`、`src/runtime/permissions.ts`、`src/agents/pipeline/`、`src/agents/diagnosis/`、`src/agents/collaboration/`
+- **说明**：MCP 宿主能力已经有 stdio transport 和权限裁剪基础，下一步不应一次性实现所有外部系统工具。第一批按当前业务闭环优先级推进：先飞书卡片更新，再 Tekton 日志读取，再 ArgoCD 应用状态读取。触发构建、触发同步这类变更动作默认仍由业务 Agent 的确定性控制器执行，不直接暴露给 YAML Governance。
+- **第一批工具**：
+  - `mcp__feishu__update_card`：服务于 Collaboration Agent 的按钮反馈闭环。
+  - `mcp__tekton__get_task_logs`：服务于 Pipeline 构建失败修复和 Diagnosis 日志摘要。
+  - `mcp__tekton__get_pipeline_run`：服务于构建状态查询和证据引用。
+  - `mcp__argocd__get_application`：服务于 Diagnosis 判断部署状态。
+  - `mcp__argocd__get_operation`：服务于 Diagnosis 追踪同步失败原因。
+- **验收**：
+  - 每个 MCP 工具都有稳定输入 schema、输出 schema 和错误映射。
+  - 每个工具都能被 `permission_profile` 按 server 或 tool 裁剪。
+  - 工具调用写入 tool trace，不把原始 token、secret 或大日志内联到事件中。
+  - 未配置凭据时返回 `CONFIGURATION_INVALID` 或 `AUTHENTICATION_FAILED`，不能静默降级。
+
 ### TODO-20260618-02：外部 Agent / 低代码产品模块借鉴评估
 
 - **状态**：待评估
@@ -412,13 +470,21 @@
 
 ## 5. 下一步行动
 
-1. Pipeline Agent 核心已进入联调前状态（TODO-20260617-13）：
-   - Tekton HTTP Endpoint 继续由 `01-事件总线.md` 负责
-   - Tekton 事件解析
-   - Git 操作封装
-   - YAML 镜像更新
-   - 合规检测雷达 preflight
-   - ArgoCD 同步触发
-   - 主交付链路串联
-2. 按 `06-MR评审智能体.md` 到 `08-构建失败修复智能体.md` 实现运行时相关模板。
-3. 按 `09-诊断上下文构建器.md` 到 `15-协同日报生成.md` 实现 Diagnosis 和 Collaboration 的 prompt / schema。
+1. 先补飞书按钮闭环（TODO-20260626-02）：
+   - 当前飞书长连接、消息接收、按钮事件入 Redis Streams 已验证。
+   - 缺口是 Collaboration Agent 还没有消费 `feishu.card.action_clicked` 并更新原卡片。
+   - 这一步完成后，飞书连接器才从“事件入口可用”进入“双向交互闭环可用”。
+2. 再落地项目内 Skill 目录和 Skill Loader（TODO-20260626-01）：
+   - 先建 `skills/fde-pipeline`、`skills/fde-diagnosis`、`skills/fde-collaboration`。
+   - Runtime 能读取 Skill 的 prompt、schema 和推荐工具。
+   - Skill 只提供上下文和约束，不能扩大工具权限。
+3. 再按最小业务闭环接入第一批 MCP 工具（TODO-20260626-03）：
+   - 优先 `mcp__feishu__update_card`。
+   - 其次 `mcp__tekton__get_task_logs` 和 `mcp__tekton__get_pipeline_run`。
+   - 再接 `mcp__argocd__get_application` 和 `mcp__argocd__get_operation`。
+4. Pipeline Agent 继续维持确定性主链路（TODO-20260617-13）：
+   - Tekton 构建、GitOps 写入、Git commit / push、ArgoCD 同步请求不交给模型循环。
+   - AI 只通过 `fde-pipeline` Skill 进入 YAML Governance 和构建失败修复建议。
+5. Diagnosis / Collaboration 的 AI prompt 和 schema 后置推进：
+   - `09-诊断上下文构建器.md` 到 `12-诊断大模型根因分析.md` 先解决证据结构。
+   - `13-协同通知路由.md` 到 `15-协同日报生成.md` 再补通知摘要、回复判断和日报生成。
