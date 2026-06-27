@@ -6,7 +6,7 @@
   "scripts": {
     "start": "tsx src/main.ts",
     "start:prod": "node dist/src/main.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/src/i18n',{recursive:true}); fs.copyFileSync('src/i18n/zh.json','dist/src/i18n/zh.json');\"",
     "schema:validate": "tsx src/cli/schema-validate.ts",
     "fixtures:scan-secrets": "tsx src/cli/scan-secrets.ts",
     "redis:config": "tsx src/cli/print-redis-config.ts",

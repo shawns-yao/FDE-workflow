@@ -141,6 +141,15 @@
 
 ## 2. 已完成实施记录
 
+### DONE-20260627-01：中文运行时文案资源化
+
+- **状态**：已完成代码实现，已通过聚焦测试和构建验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/i18n/zh.json`、`src/i18n/messages.ts`、`src/app/service-runtime.ts`、`src/runtime/`、`src/events/`、`src/connectors/feishu/`、`src/radars/compliance/`、`src/agents/pipeline/state-machine.ts`、`.env.example`、`.env.production.example`
+- **说明**：中文展示文案、运行时错误消息、飞书回调错误、事件入口认证错误、合规探针提示和 Pipeline 状态转换原因统一进入 `src/i18n/zh.json`。环境变量只保留密钥、目标、开关、URL 等部署配置，不承载中文文案。运行时代码通过 `loadZhMessages()` 读取资源，动态文案使用模板占位符。
+- **验证记录**：已确认旧的启动消息正文变量和按钮文案变量不再存在；运行时代码中文字符串只剩 `zh.json` 资源和代码注释中的示例。
+
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
 - **状态**：已完成
@@ -254,9 +263,9 @@
 - **状态**：已完成代码实现，已通过真实飞书群发送验证
 - **提出时间**：2026-06-18
 - **完成时间**：2026-06-18
-- **影响范围**：`src/app/service-runtime.ts`、`src/main.ts`、`.env.example`、`docs/implementation/steps/03-飞书连接器.md`
-- **说明**：新增 `FDE_FEISHU_STARTUP_MESSAGE`。项目服务启动成功后，如果该变量存在，会通过服务运行时持有的飞书连接器向 `FEISHU_STARTUP_MESSAGE_CHAT_ID`、`FEISHU_TEST_CHAT_ID` 或 `FEISHU_DEFAULT_CHAT_ID` 异步发送一条 `custom` 卡片。该异步发送不得阻塞 HTTP 服务启动，但必须输出结构化 `feishu_startup_message_result`，成功包含 `sent/message_id/target_id/sent_at`，失败包含标准 `ErrorObject`。该路径用于验证“服务进程内发送飞书消息”，不是 `feishu:send-smoke` 辅助命令，也不是正式业务通知可靠投递链路。
-- **验证记录**：2026-06-18 已使用真实 `.env` 启动项目服务，飞书 OpenAPI 返回 `sent`，用户确认个人飞书群已收到“FDE Workstation 服务启动测试消息”。随后连续 3 次使用随机启动消息验证，均返回 `sent` 和独立 `message_id`。
+- **影响范围**：`src/app/service-runtime.ts`、`src/main.ts`、`src/i18n/zh.json`、`.env.example`、`.env.production.example`、`docs/implementation/steps/03-飞书连接器.md`
+- **说明**：启动测试消息由 `FDE_FEISHU_STARTUP_MESSAGE_ENABLED=true` 触发。项目服务启动成功后，会通过服务运行时持有的飞书连接器向 `FEISHU_STARTUP_MESSAGE_CHAT_ID`、`FEISHU_TEST_CHAT_ID` 或 `FEISHU_DEFAULT_CHAT_ID` 异步发送一条 `custom` 卡片。卡片正文和按钮文案统一来自 `src/i18n/zh.json`，不通过环境变量配置。该异步发送不得阻塞 HTTP 服务启动，但必须输出结构化 `feishu_startup_message_result`，成功包含 `sent/message_id/target_id/sent_at`，失败包含标准 `ErrorObject`。该路径用于验证“服务进程内发送飞书消息”，不是 `feishu:send-smoke` 辅助命令，也不是正式业务通知可靠投递链路。
+- **验证记录**：2026-06-18 已使用真实 `.env` 启动项目服务，飞书 OpenAPI 返回 `sent`，用户确认个人飞书群已收到启动测试卡片。随后连续 3 次使用随机启动消息验证，均返回 `sent` 和独立 `message_id`。2026-06-27 已改为 `zh.json` 文案资源驱动，环境变量只保留开关和目标配置。
 
 ### DONE-20260618-13：飞书启动测试卡片 mentions 与交互按钮
 
@@ -264,7 +273,7 @@
 - **提出时间**：2026-06-18
 - **完成时间**：2026-06-18
 - **影响范围**：`src/connectors/feishu/openapi-feishu-connector.ts`、`src/connectors/feishu/types.ts`、`src/connectors/feishu/connector.ts`、`src/app/service-runtime.ts`、`.env.example`、`docs/implementation/steps/03-飞书连接器.md`
-- **说明**：OpenAPI 连接器支持把 `mentions.type=user` 渲染为飞书 lark_md 的 `<at id=ou_xxx></at>`，支持 `open_url` 和 `acknowledge` 等交互按钮。服务启动测试卡片支持 `FEISHU_STARTUP_MENTION_OPEN_IDS` 显式 @ 人，也支持 `FEISHU_STARTUP_MENTION_FROM_CHAT_MEMBERS=true` 时调用飞书群成员接口读取 open_id。显式 open_id 优先；群成员读取缺权限时返回结构化 `failed`，不静默发送缺少 @ 的卡片。
+- **说明**：OpenAPI 连接器支持把 `mentions.type=user` 渲染为飞书 lark_md 的 `<at id=ou_xxx></at>`，支持 `open_url` 和 `acknowledge` 等交互按钮。服务启动测试卡片支持 `FEISHU_STARTUP_MENTION_OPEN_IDS` 显式 @ 人，也支持 `FEISHU_STARTUP_MENTION_FROM_CHAT_MEMBERS=true` 时调用飞书群成员接口读取 open_id。按钮文案来自 `src/i18n/zh.json`，不通过环境变量覆盖。显式 open_id 优先；群成员读取缺权限时返回结构化 `failed`，不静默发送缺少 @ 的卡片。
 - **剩余**：真实 @ 人验证需要提供用户 open_id，或为飞书应用开通群成员读取权限后启用 `FEISHU_STARTUP_MENTION_FROM_CHAT_MEMBERS=true`。
 
 ---

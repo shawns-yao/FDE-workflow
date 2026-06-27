@@ -1,0 +1,54 @@
+{
+  "feishu": {
+    "startup": {
+      "deployment_test": "FDE Workstation 服务器部署测试",
+      "open_url_label": "查看详情",
+      "acknowledge_label": "确认收到"
+    },
+    "callback": {
+      "invalid_json_body": "飞书回调 body 不是合法 JSON 对象",
+      "missing_signature_headers": "飞书回调缺少签名头",
+      "signature_verification_failed": "飞书回调签名校验失败",
+      "url_verification_token_failed": "飞书 URL verification token 校验失败"
+    },
+    "webhook": {
+      "interactive_action_not_supported": "webhook_bot 模式不支持交互类 action"
+    }
+  },
+  "runtime": {
+    "permissions": {
+      "task_tools_not_allowed": "Runtime 工具权限不满足 permission_profile 或环境策略",
+      "run_command_not_enabled": "本次任务未启用 run_command 工具",
+      "command_not_allowlisted": "命令不在 permission_profile 白名单内"
+    },
+    "run_command": {
+      "execution_failed": "命令执行失败，退出码: {exit_code}",
+      "execution_exception": "命令执行异常"
+    }
+  },
+  "events": {
+    "delivery": {
+      "consume_failed": "事件消费失败"
+    },
+    "ingress_auth": {
+      "token_not_configured": "入口认证 token 未配置",
+      "gitlab_token_invalid": "GitLab webhook token 校验失败",
+      "argocd_token_invalid": "ArgoCD webhook token 校验失败",
+      "tekton_token_invalid": "Tekton report token 校验失败"
+    }
+  },
+  "compliance": {
+    "probe": {
+      "missing_endpoint": "缺少探测 endpoint",
+      "missing_credential": "缺少探测凭据"
+    }
+  },
+  "pipeline": {
+    "transition_reasons": {
+      "start_updating": "开始更新配置",
+      "start_syncing": "配置更新完成，开始同步",
+      "complete": "同步成功",
+      "retrying": "准备重试"
+    }
+  }
+}

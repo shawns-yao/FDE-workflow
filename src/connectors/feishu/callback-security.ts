@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ErrorObject } from "../../common/contracts.js";
+import { loadZhMessages } from "../../i18n/messages.js";
 
 export interface FeishuCallbackVerificationInput {
   rawBody: string;
@@ -27,12 +28,12 @@ export function verifyFeishuCallback(input: FeishuCallbackVerificationInput): Fe
   const timestamp = getHeader(input.headers, "x-lark-request-timestamp");
   const signature = getHeader(input.headers, "x-lark-signature");
   if (!timestamp || !signature) {
-    return authenticationError("飞书回调缺少签名头");
+    return authenticationError(loadZhMessages().feishu.callback.missing_signature_headers);
   }
 
   const expected = createHmac("sha256", `${timestamp}\n${input.signingSecret}`).update(input.rawBody).digest("base64");
   if (!safeEqual(signature, expected)) {
-    return authenticationError("飞书回调签名校验失败");
+    return authenticationError(loadZhMessages().feishu.callback.signature_verification_failed);
   }
 
   return { ok: true };
@@ -44,7 +45,7 @@ function verifyChallengeToken(rawBody: string, verificationToken?: string): Feis
     return undefined;
   }
   if (verificationToken && parsed["token"] !== verificationToken) {
-    return authenticationError("飞书 URL verification token 校验失败");
+    return authenticationError(loadZhMessages().feishu.callback.url_verification_token_failed);
   }
   return {
     ok: true,

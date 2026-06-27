@@ -100,7 +100,7 @@ test("openapi connector replies to message", async () => {
 
   const result = await connector.replyMessage({
     message_id: "om_msg_1",
-    content: "已收到",
+    content: "received",
     correlation_id: "corr-test",
     trace_id: "trace-test",
     run_id: "run-test"

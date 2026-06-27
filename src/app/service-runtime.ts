@@ -14,6 +14,7 @@ import { createFeishuConnectorFromEnv, type FeishuConnectorEnv } from "../connec
 import type { IMConnectorService } from "../connectors/feishu/connector.js";
 import type { FeishuAction, FeishuMention, FeishuMode, SendCardResult } from "../connectors/feishu/types.js";
 import { FeishuLongConnectionClient, type FeishuLongConnectionClientLike } from "../connectors/feishu/long-connection-client.js";
+import { loadZhMessages, type ZhMessages } from "../i18n/messages.js";
 import { createFdeHttpServer, type FdeReadinessState } from "./fde-http-server.js";
 
 export type FdeEventBackend = "redis" | "memory";
@@ -24,6 +25,7 @@ export interface FdeServiceRuntimeOptions {
   archiveRepository?: EventArchiveRepository;
   feishuConnector?: IMConnectorService;
   feishuLongConnection?: FeishuLongConnectionClientLike;
+  messages?: ZhMessages;
 }
 
 export interface FdeServiceRuntime {
@@ -33,7 +35,7 @@ export interface FdeServiceRuntime {
   config: ReturnType<typeof loadFdeRuntimeConfig>;
   feishu_event_mode: ReturnType<typeof loadFdeRuntimeConfig>["feishu"]["event_mode"];
   startFeishuEventIngress(): Promise<void>;
-  sendFeishuTextMessage(message: string): Promise<SendCardResult>;
+  sendFeishuTextMessage(message?: string): Promise<SendCardResult>;
   close(): Promise<void>;
 }
 
@@ -47,6 +49,7 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
   const archiveRepository = options.archiveRepository ?? new MemoryEventArchiveRepository();
   const eventPublisher = new EventPublisherService(broker, archiveRepository);
   const feishuConnector = options.feishuConnector ?? createFeishuConnectorFromEnv(env as FeishuConnectorEnv);
+  const messages = options.messages ?? loadZhMessages();
   const ingress = new EventIngressService(eventPublisher, {
     gitlabToken: env.GITLAB_WEBHOOK_TOKEN,
     tektonReportToken: env.TEKTON_REPORT_TOKEN,
@@ -90,6 +93,7 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
       await feishuLongConnection?.start();
     },
     async sendFeishuTextMessage(message) {
+      const startupMessage = message ?? messages.feishu.startup.deployment_test;
       const targetId = env.FEISHU_STARTUP_MESSAGE_CHAT_ID ?? env.FEISHU_TEST_CHAT_ID ?? env.FEISHU_DEFAULT_CHAT_ID;
       if (!targetId) {
         return {
@@ -133,10 +137,10 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
         target_id: targetId,
         card_type: "custom",
         title: "FDE Workstation",
-        summary: message,
+        summary: startupMessage,
         severity: "low",
         mentions,
-        actions: readStartupActions(env, mode),
+        actions: readStartupActions(env, mode, messages.feishu.startup),
         data: {
           message_type: "service_startup_message"
         },
@@ -201,20 +205,24 @@ function readStartupMentionLimit(env: NodeJS.ProcessEnv): number {
   return Math.min(Math.max(parsed, 1), 10);
 }
 
-function readStartupActions(env: NodeJS.ProcessEnv, mode: FeishuMode): FeishuAction[] | undefined {
+function readStartupActions(
+  env: NodeJS.ProcessEnv,
+  mode: FeishuMode,
+  startupMessages: ZhMessages["feishu"]["startup"]
+): FeishuAction[] | undefined {
   const actions: FeishuAction[] = [];
   const actionUrl = env.FEISHU_STARTUP_ACTION_URL?.trim();
   if (actionUrl) {
     actions.push({
       type: "open_url",
-      label: env.FEISHU_STARTUP_ACTION_LABEL?.trim() || "查看详情",
+      label: startupMessages.open_url_label,
       url: actionUrl
     });
   }
   if (mode === "openapi_bot" && env.FEISHU_STARTUP_ENABLE_CALLBACK_ACTIONS === "true") {
     actions.push({
       type: "acknowledge",
-      label: env.FEISHU_STARTUP_ACK_LABEL?.trim() || "确认收到",
+      label: startupMessages.acknowledge_label,
       value: "startup_acknowledge"
     });
   }

@@ -1,4 +1,5 @@
 import type { ErrorObject } from "../common/contracts.js";
+import { loadZhMessages } from "../i18n/messages.js";
 import type { BaseTaskInput, BuiltinRuntimeToolName, PermissionProfileName, RuntimeToolName } from "./task-types.js";
 
 export interface PermissionProfile {
@@ -62,7 +63,7 @@ export function checkTaskPermissions(input: BaseTaskInput): PermissionCheckResul
     blocked_tools: uniqueBlockedTools,
     error: {
       code: "TOOL_PERMISSION_DENIED",
-      message: "Runtime 工具权限不满足 permission_profile 或环境策略",
+      message: loadZhMessages().runtime.permissions.task_tools_not_allowed,
       retryable: false,
       severity: "error",
       details: {

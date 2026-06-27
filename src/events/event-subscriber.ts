@@ -1,4 +1,5 @@
 import type { ErrorObject } from "../common/contracts.js";
+import { loadZhMessages } from "../i18n/messages.js";
 import { consumerKey, type IdempotencyStore } from "./idempotency-store.js";
 import type { EventArchiveRepository } from "./archive.js";
 import type { CloudEvent } from "./cloudevent.js";
@@ -103,7 +104,7 @@ function normalizeDeliveryError(error: unknown): ErrorObject {
   }
   return {
     code: "DELIVERY_RETRY_EXHAUSTED",
-    message: error instanceof Error ? error.message : "事件消费失败",
+    message: error instanceof Error ? error.message : loadZhMessages().events.delivery.consume_failed,
     retryable: true,
     severity: "error",
     details: {}

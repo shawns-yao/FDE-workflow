@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ErrorObject } from "../../common/contracts.js";
+import { formatMessage, loadZhMessages } from "../../i18n/messages.js";
 import { isCommandAllowed } from "../permissions.js";
 import type { PermissionProfileName, RuntimeToolName } from "../task-types.js";
 import type { CoreTool } from "./core-tool.js";
@@ -39,6 +40,7 @@ export type RunCommandToolResult =
 
 export function createRunCommandTool(options: { execute?: RunCommandExecutor } = {}): CoreTool {
   const execute = options.execute ?? defaultRunCommandExecutor;
+  const messages = loadZhMessages();
   return {
     name: "run_command" as const,
     description: "Run an allowlisted command without shell expansion.",
@@ -76,7 +78,7 @@ export function createRunCommandTool(options: { execute?: RunCommandExecutor } =
               output,
               error: {
                 code: "COMMAND_EXECUTION_FAILED",
-                message: `命令执行失败，退出码: ${output.exit_code}`,
+                message: formatMessage(messages.runtime.run_command.execution_failed, { exit_code: output.exit_code }),
                 retryable: output.exit_code !== 126 && output.exit_code !== 127,
                 severity: "error",
                 details: {
@@ -91,7 +93,7 @@ export function createRunCommandTool(options: { execute?: RunCommandExecutor } =
           status: "failed",
           error: {
             code: "COMMAND_TIMEOUT",
-            message: error instanceof Error ? error.message : "命令执行异常",
+            message: error instanceof Error ? error.message : messages.runtime.run_command.execution_exception,
             retryable: false,
             severity: "error",
             details: {
@@ -118,11 +120,12 @@ async function defaultRunCommandExecutor(input: RunCommandInput): Promise<RunCom
 }
 
 function validatePermission(input: RunCommandInput, context: RunCommandContext): ErrorObject | undefined {
+  const messages = loadZhMessages();
   if (!context.allowed_tools.includes("run_command")) {
-    return permissionError(input.command, "本次任务未启用 run_command 工具");
+    return permissionError(input.command, messages.runtime.permissions.run_command_not_enabled);
   }
   if (!isCommandAllowed(context.permission_profile, input.command)) {
-    return permissionError(input.command, "命令不在 permission_profile 白名单内");
+    return permissionError(input.command, messages.runtime.permissions.command_not_allowlisted);
   }
   return undefined;
 }

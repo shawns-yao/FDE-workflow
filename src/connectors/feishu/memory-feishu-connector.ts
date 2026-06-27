@@ -1,5 +1,6 @@
 import { createId } from "../../common/ids.js";
 import { redactSensitiveFields } from "../../common/redact.js";
+import { loadZhMessages } from "../../i18n/messages.js";
 import type { FeishuActionType, FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "./types.js";
 import type { FeishuCardRecord, IMConnectorService } from "./connector.js";
 
@@ -94,7 +95,7 @@ function validateWebhookActions(input: SendCardInput) {
   }
   return {
     code: "PERMISSION_DENIED",
-    message: "webhook_bot 模式不支持交互类 action",
+    message: loadZhMessages().feishu.webhook.interactive_action_not_supported,
     retryable: false,
     severity: "error",
     details: {

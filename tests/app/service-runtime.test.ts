@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { createFdeServiceRuntime } from "../../src/app/service-runtime.js";
 import type { IMConnectorService } from "../../src/connectors/feishu/connector.js";
 import type { FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "../../src/connectors/feishu/types.js";
+import { loadZhMessages } from "../../src/i18n/messages.js";
 
 test("fde service runtime wires feishu callback through project server", async () => {
   const runtime = createFdeServiceRuntime({
@@ -40,6 +41,7 @@ test("fde service runtime wires feishu callback through project server", async (
 
 test("fde service runtime sends a text message through feishu connector", async () => {
   const connector = new CapturingFeishuConnector();
+  const messages = loadZhMessages();
   const runtime = createFdeServiceRuntime({
     env: {
       FDE_ENVIRONMENT: "dev",
@@ -50,7 +52,7 @@ test("fde service runtime sends a text message through feishu connector", async 
     feishuConnector: connector
   });
 
-  const result = await runtime.sendFeishuTextMessage("FDE Workstation 服务启动测试消息");
+  const result = await runtime.sendFeishuTextMessage();
 
   assert.equal(result.status, "sent");
   assert.equal(connector.cards.length, 1);
@@ -58,11 +60,12 @@ test("fde service runtime sends a text message through feishu connector", async 
   assert.equal(connector.cards[0].target_type, "chat");
   assert.equal(connector.cards[0].target_id, "oc_test");
   assert.equal(connector.cards[0].card_type, "custom");
-  assert.equal(connector.cards[0].summary, "FDE Workstation 服务启动测试消息");
+  assert.equal(connector.cards[0].summary, messages.feishu.startup.deployment_test);
 });
 
-test("fde service runtime builds startup card mentions and actions from env", async () => {
+test("fde service runtime builds startup card mentions from env and actions from messages", async () => {
   const connector = new CapturingFeishuConnector();
+  const messages = loadZhMessages();
   const runtime = createFdeServiceRuntime({
     env: {
       FDE_ENVIRONMENT: "dev",
@@ -71,13 +74,12 @@ test("fde service runtime builds startup card mentions and actions from env", as
       FEISHU_TEST_CHAT_ID: "oc_test",
       FEISHU_STARTUP_MENTION_OPEN_IDS: "ou_user_1, ou_user_2",
       FEISHU_STARTUP_ACTION_URL: "https://example.com",
-      FEISHU_STARTUP_ACTION_LABEL: "Open",
       FEISHU_STARTUP_ENABLE_CALLBACK_ACTIONS: "true"
     },
     feishuConnector: connector
   });
 
-  const result = await runtime.sendFeishuTextMessage("FDE Workstation 服务启动测试消息");
+  const result = await runtime.sendFeishuTextMessage();
 
   assert.equal(result.status, "sent");
   assert.deepEqual(connector.cards[0].mentions, [
@@ -85,8 +87,8 @@ test("fde service runtime builds startup card mentions and actions from env", as
     { type: "user", id: "ou_user_2", reason: "startup_message" }
   ]);
   assert.deepEqual(connector.cards[0].actions, [
-    { type: "open_url", label: "Open", url: "https://example.com" },
-    { type: "acknowledge", label: "确认收到", value: "startup_acknowledge" }
+    { type: "open_url", label: messages.feishu.startup.open_url_label, url: "https://example.com" },
+    { type: "acknowledge", label: messages.feishu.startup.acknowledge_label, value: "startup_acknowledge" }
   ]);
 });
 
@@ -108,7 +110,7 @@ test("fde service runtime can resolve startup mentions from chat members", async
     feishuConnector: connector
   });
 
-  const result = await runtime.sendFeishuTextMessage("FDE Workstation 服务启动测试消息");
+  const result = await runtime.sendFeishuTextMessage();
 
   assert.equal(result.status, "sent");
   assert.deepEqual(connector.chatMemberRequests, [{ chat_id: "oc_test", limit: 1 }]);
@@ -131,7 +133,7 @@ test("fde service runtime returns structured error when startup mention resoluti
     feishuConnector: connector
   });
 
-  const result = await runtime.sendFeishuTextMessage("FDE Workstation 服务启动测试消息");
+  const result = await runtime.sendFeishuTextMessage();
 
   assert.equal(result.status, "failed");
   assert.equal(result.error?.code, "UPSTREAM_UNAVAILABLE");

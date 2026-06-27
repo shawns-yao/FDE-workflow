@@ -1,4 +1,5 @@
 import type { ErrorCode } from "../../common/contracts.js";
+import { loadZhMessages } from "../../i18n/messages.js";
 import type { ComplianceProbe } from "./probe.js";
 import type { EnvironmentScanRequest, RadarTarget, RadarTargetResult } from "./types.js";
 
@@ -81,11 +82,12 @@ function createHttpProbe(input: CreateHttpProbeInput): ComplianceProbe {
   return {
     target: input.target,
     async run(_request: EnvironmentScanRequest): Promise<RadarTargetResult> {
+      const messages = loadZhMessages();
       if (!input.url || input.url.startsWith("/")) {
-        return critical(input.target, input.name, "AUTHENTICATION_FAILED", "缺少探测 endpoint");
+        return critical(input.target, input.name, "AUTHENTICATION_FAILED", messages.compliance.probe.missing_endpoint);
       }
       if (!input.token) {
-        return critical(input.target, input.name, "AUTHENTICATION_FAILED", "缺少探测凭据");
+        return critical(input.target, input.name, "AUTHENTICATION_FAILED", messages.compliance.probe.missing_credential);
       }
 
       const startedAt = Date.now();

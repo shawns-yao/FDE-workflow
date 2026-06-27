@@ -1,4 +1,5 @@
 import type { ErrorObject, Environment } from "../../common/contracts.js";
+import { loadZhMessages } from "../../i18n/messages.js";
 import type { EventPublishResult, EventPublisherService } from "../../events/event-publisher.js";
 import { verifyFeishuCallback } from "./callback-security.js";
 import { FeishuCallbackEventPublisher } from "./callback-event-publisher.js";
@@ -66,7 +67,7 @@ export class FeishuCallbackHandler {
         accepted: false,
         error: {
           code: "SCHEMA_VALIDATION_FAILED",
-          message: "飞书回调 body 不是合法 JSON 对象",
+          message: loadZhMessages().feishu.callback.invalid_json_body,
           retryable: false,
           severity: "error",
           details: {}

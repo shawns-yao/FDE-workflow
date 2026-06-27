@@ -42,9 +42,8 @@ runtime.server.listen(port, host, () => {
     }, null, 2));
   });
 
-  const startupMessage = process.env.FDE_FEISHU_STARTUP_MESSAGE;
-  if (startupMessage) {
-    void runtime.sendFeishuTextMessage(startupMessage).then((result) => {
+  if (process.env.FDE_FEISHU_STARTUP_MESSAGE_ENABLED === "true") {
+    void runtime.sendFeishuTextMessage().then((result) => {
       console.log(JSON.stringify({
         status: "feishu_startup_message_result",
         result

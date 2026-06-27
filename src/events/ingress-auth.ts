@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { ErrorObject } from "../common/contracts.js";
+import { loadZhMessages } from "../i18n/messages.js";
 
 export interface IngressAuthResult {
   ok: boolean;
@@ -9,22 +10,22 @@ export interface IngressAuthResult {
 export type HeaderMap = Record<string, string | string[] | undefined>;
 
 export function verifyGitLabWebhookToken(headers: HeaderMap, expectedToken: string | undefined): IngressAuthResult {
-  return verifyStaticToken(readHeader(headers, "x-gitlab-token"), expectedToken, "GitLab webhook token 校验失败");
+  return verifyStaticToken(readHeader(headers, "x-gitlab-token"), expectedToken, loadZhMessages().events.ingress_auth.gitlab_token_invalid);
 }
 
 export function verifyArgoCdWebhookToken(headers: HeaderMap, expectedToken: string | undefined): IngressAuthResult {
   const authorization = readHeader(headers, "authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : readHeader(headers, "x-argocd-token");
-  return verifyStaticToken(token, expectedToken, "ArgoCD webhook token 校验失败");
+  return verifyStaticToken(token, expectedToken, loadZhMessages().events.ingress_auth.argocd_token_invalid);
 }
 
 export function verifyTektonReportToken(headers: HeaderMap, expectedToken: string | undefined): IngressAuthResult {
-  return verifyStaticToken(readHeader(headers, "x-fde-token"), expectedToken, "Tekton report token 校验失败");
+  return verifyStaticToken(readHeader(headers, "x-fde-token"), expectedToken, loadZhMessages().events.ingress_auth.tekton_token_invalid);
 }
 
 function verifyStaticToken(actual: string | undefined, expected: string | undefined, message: string): IngressAuthResult {
   if (!expected) {
-    return authError("入口认证 token 未配置");
+    return authError(loadZhMessages().events.ingress_auth.token_not_configured);
   }
   if (!actual || !safeEqual(actual, expected)) {
     return authError(message);

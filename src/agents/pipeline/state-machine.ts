@@ -4,6 +4,7 @@ import type {
   PipelineTask,
   PipelineEventType,
 } from "./types.js";
+import { loadZhMessages } from "../../i18n/messages.js";
 
 // 状态转换规则
 const stateTransitions: Record<PipelineStatus, PipelineStatus[]> = {
@@ -157,17 +158,17 @@ export class PipelineStateMachine {
 
   // 快捷方法：开始更新
   startUpdating(taskId: string): StateMachineResult {
-    return this.transition(taskId, "updating", "开始更新配置");
+    return this.transition(taskId, "updating", loadZhMessages().pipeline.transition_reasons.start_updating);
   }
 
   // 快捷方法：开始同步
   startSyncing(taskId: string): StateMachineResult {
-    return this.transition(taskId, "syncing", "配置更新完成，开始同步");
+    return this.transition(taskId, "syncing", loadZhMessages().pipeline.transition_reasons.start_syncing);
   }
 
   // 快捷方法：完成
   complete(taskId: string): StateMachineResult {
-    return this.transition(taskId, "success", "同步成功");
+    return this.transition(taskId, "success", loadZhMessages().pipeline.transition_reasons.complete);
   }
 
   // 快捷方法：失败
@@ -177,7 +178,7 @@ export class PipelineStateMachine {
 
   // 快捷方法：重试
   retry(taskId: string): StateMachineResult {
-    return this.transition(taskId, "retrying", "准备重试");
+    return this.transition(taskId, "retrying", loadZhMessages().pipeline.transition_reasons.retrying);
   }
 
   // 获取任务转换历史
