@@ -43,6 +43,7 @@ export const artifactTypes = [
   "diagnosis_result",
   "notification_card",
   "progress_record",
+  "daily_report",
   "yaml_audit_report",
   "code_review_report",
   "build_repair_report",

@@ -306,7 +306,18 @@
 - **说明**：Collaboration Event Consumer 支持在配置 `artifactStore` 时，把每次 `collaboration.progress.updated` 对应的进度数据写入 `artifacts/collaboration/{notification_id 或 message_id}/progress-record.json`，artifact 类型为 `progress_record`。进度事件会携带 `progress_record_artifact_uri`，供后续日报聚合引用。服务运行时新增 `FDE_COLLABORATION_PROGRESS_ARTIFACTS_ENABLED` 开关，开启后使用注入的 artifact store 或 `FDE_ARTIFACT_ROOT` 下的本地 artifact store。
 - **幂等策略**：artifact 写入跟随既有进度事件处理链路；重复事件被业务幂等拦截后不会重复写入 progress record。
 - **验证记录**：新增聚焦测试覆盖消费者配置 artifact store 后写入 `progress-record.json`，以及服务运行时通过环境变量把 artifact store 传入协同消费者。
-- **剩余细节**：服务器环境变量尚未启用；日报聚合仍未读取 `progress_record` artifact；artifact 写入失败当前会让对应事件处理失败并进入现有重试或死信路径。
+- **剩余细节**：服务器环境变量尚未启用；最小日报生成器已在 `DONE-20260627-16` 实现，但尚未接入自动收集和调度；artifact 写入失败当前会让对应事件处理失败并进入现有重试或死信路径。
+
+### DONE-20260627-16：最小协同日报生成器
+
+- **状态**：已完成本地代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/daily-report-generator.ts`、`src/common/contracts.ts`、`tests/agents/collaboration/daily-report-generator.test.ts`
+- **说明**：新增确定性 `CollaborationDailyReportGenerator`，输入当天协同进度记录后，聚合 `progress_total`、`fixed_total`、`escalation_total` 和 `open_item_total`，保留除 `fixed` 外的未闭环事项，并写出 `artifacts/reports/{date}/daily-report.json` 与 `artifacts/reports/{date}/daily-report.md`。报告内容引用 `progress_record_artifact_uri`，生成后发布 `collaboration.daily_report.generated`。
+- **降级策略**：当前版本不调用 Claude API，使用规则模板生成指标型日报，符合 Claude API 不可用时的降级路径。
+- **验证记录**：新增聚焦测试覆盖 mock 进度记录生成 JSON 和 Markdown artifact、Markdown 包含未闭环事项和 artifact URI，以及发布 `collaboration.daily_report.generated`。
+- **剩余细节**：尚未自动收集当天事件或 progress record artifact，尚未接入定时调度，尚未发送飞书日报卡片，尚未实现 `feishu-daily-report-card.json`。
 
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
