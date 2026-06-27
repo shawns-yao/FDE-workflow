@@ -191,6 +191,27 @@
 - **处理**：环境变量模板中的注释统一改为 ASCII 英文，避免 Compose、Shell、编辑器编码和终端显示差异影响部署。中文展示文案继续放在 `src/i18n/zh.json`，中文说明放在文档中，不放入可被 `--env-file` 直接读取的模板。
 - **结论**：`.env.example` 和 `.env.production.example` 只承载键名、默认值、英文部署提示和占位配置；`.env`、`.env.production` 仍然不提交，真实密钥只保存在本机或服务器。
 
+### DONE-20260627-05：Redis 空环境变量不再覆盖 REDIS_URL
+
+- **状态**：已完成代码修复
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/config/redis.ts`、`tests/config/redis-config.test.ts`、Docker Compose 生产部署
+- **问题**：服务器部署时 `.env.production` 同时存在 `REDIS_URL=redis://redis:6379/0` 和空的 `REDIS_HOST=` 等拆分字段。旧逻辑使用 `??` 判断，空字符串会被当成有效配置，导致应用容器连接空主机并出现 `ioredis ECONNREFUSED`，即使 Redis 容器本身已经 healthy。
+- **处理**：Redis 配置加载时先 trim 字符串，空字符串统一视为未配置。`REDIS_HOST`、`REDIS_PORT`、`REDIS_DB`、`REDIS_PASSWORD`、`REDIS_KEY_PREFIX`、stream 名称等字段不会再用空值覆盖 `REDIS_URL` 或默认值。
+- **验证记录**：新增回归测试覆盖 `REDIS_URL` 与空拆分字段同时存在的场景，确保最终主机仍解析为 `redis`。
+
+### DONE-20260627-06：飞书卡片 acknowledge 最小协同消费者
+
+- **状态**：已完成最小闭环代码实现
+- **提出时间**：2026-06-26
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/`、`src/app/service-runtime.ts`、`tests/agents/collaboration/`、`tests/app/service-runtime.test.ts`
+- **说明**：新增 Collaboration Event Consumer，订阅 `feishu.card.action_clicked`，只处理 `acknowledge` 动作。消费者会调用飞书连接器 `updateCard(message_id)` 将原卡片更新为 `acknowledged` 状态，并发布 `collaboration.progress.updated`。服务运行时已接入该消费者，长连接或 HTTP callback 写入事件总线后，主服务进程可以消费该事件。
+- **幂等策略**：按 `message_id + action_type + action_value` 写入业务幂等键，重复点击同一卡片确认按钮不会重复更新卡片或重复发布进度事件。
+- **验证记录**：新增聚焦测试覆盖 acknowledge 消费、卡片更新、进度事件发布、重复点击幂等和服务运行时 wiring。
+- **剩余细节**：飞书更新失败当前依赖 `EventSubscriber` 进入重试或死信路径；上游 OpenAPI 失败错误码到业务 `ErrorObject` 的更细分类可后续增强。
+
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
 - **状态**：已完成
@@ -445,16 +466,17 @@
 
 ### TODO-20260626-02：飞书卡片交互最小协同消费者
 
-- **状态**：待实施
+- **状态**：已完成最小闭环，详见 `DONE-20260627-06`
 - **提出时间**：2026-06-26
+- **完成时间**：2026-06-27
 - **影响范围**：`src/agents/collaboration/`、`src/connectors/feishu/`、`src/events/`、`docs/implementation/steps/14-协同进度追踪.md`
-- **说明**：当前飞书长连接链路已经能把 `card.action.trigger` 标准化为 `feishu.card.action_clicked` 并写入 Redis Streams，但还没有业务消费者处理按钮动作并更新原卡片。下一步先实现最小 Collaboration Agent 消费者：订阅 `feishu.card.action_clicked`，识别 `acknowledge`，调用飞书连接器 `updateCard(message_id)` 把原卡片更新为已确认状态，并发布 `collaboration.progress.updated`。该能力先走确定性代码，不调用 AI。
+- **说明**：当前已实现最小 Collaboration Agent 消费者：订阅 `feishu.card.action_clicked`，识别 `acknowledge`，调用飞书连接器 `updateCard(message_id)` 把原卡片更新为已确认状态，并发布 `collaboration.progress.updated`。该能力走确定性代码，不调用 AI。
 - **验收**：
-  - 点击“确认收到”后，服务端消费 `feishu.card.action_clicked`。
-  - 同一条飞书卡片按 `message_id` 更新为已确认状态。
-  - 重复点击满足幂等，不重复写入冲突状态。
-  - 飞书更新失败时返回标准 `ErrorObject`，并进入事件重试或死信路径。
-  - 不依赖公网 HTTP callback，继续支持 SDK 长连接模式。
+  - 点击“确认收到”后，服务端消费 `feishu.card.action_clicked`。（已完成）
+  - 同一条飞书卡片按 `message_id` 更新为已确认状态。（已完成）
+  - 重复点击满足幂等，不重复写入冲突状态。（已完成）
+  - 飞书更新失败时进入事件重试或死信路径。（已完成基础路径；错误细分待增强）
+  - 不依赖公网 HTTP callback，继续支持 SDK 长连接模式。（已完成，消费者接入事件总线）
 
 ### TODO-20260626-03：第一批外部 MCP 工具落地顺序
 
@@ -520,10 +542,9 @@
 
 ## 5. 下一步行动
 
-1. 先补飞书按钮闭环（TODO-20260626-02）：
-   - 当前飞书长连接、消息接收、按钮事件入 Redis Streams 已验证。
-   - 缺口是 Collaboration Agent 还没有消费 `feishu.card.action_clicked` 并更新原卡片。
-   - 这一步完成后，飞书连接器才从“事件入口可用”进入“双向交互闭环可用”。
+1. 先完成服务器重新构建部署验证：
+   - 当前本地代码已实现飞书 acknowledge 最小闭环。
+   - 部署后需要验证按钮事件进入 Redis Streams 后，主服务进程能消费事件、更新原卡片并发布 `collaboration.progress.updated`。
 2. 再落地项目内 Skill 目录和 Skill Loader（TODO-20260626-01）：
    - 先建 `skills/fde-pipeline`、`skills/fde-diagnosis`、`skills/fde-collaboration`。
    - Runtime 能读取 Skill 的 prompt、schema 和推荐工具。

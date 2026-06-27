@@ -35,3 +35,20 @@ test("parses redis url and stream options from environment", () => {
   assert.equal(config.batchSize, 20);
   assert.equal(config.pendingIdleMs, 15000);
 });
+
+test("ignores empty split redis fields when redis url is provided", () => {
+  const config = loadRedisConfig({
+    REDIS_URL: "redis://redis:6379/0",
+    REDIS_HOST: "",
+    REDIS_PORT: "",
+    REDIS_DB: "",
+    REDIS_PASSWORD: "",
+    REDIS_KEY_PREFIX: ""
+  });
+
+  assert.equal(config.host, "redis");
+  assert.equal(config.port, 6379);
+  assert.equal(config.db, 0);
+  assert.equal(config.password, undefined);
+  assert.equal(config.keyPrefix, "fde:");
+});

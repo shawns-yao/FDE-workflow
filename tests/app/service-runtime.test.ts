@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import { createFdeServiceRuntime } from "../../src/app/service-runtime.js";
 import type { IMConnectorService } from "../../src/connectors/feishu/connector.js";
 import type { FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "../../src/connectors/feishu/types.js";
+import type { CloudEvent } from "../../src/events/cloudevent.js";
+import { MemoryEventBroker } from "../../src/events/memory-event-broker.js";
 import { loadZhMessages } from "../../src/i18n/messages.js";
 
 test("fde service runtime wires feishu callback through project server", async () => {
@@ -166,6 +168,29 @@ test("fde service runtime starts and closes Feishu long connection client", asyn
   assert.equal(longConnection.closed, 1);
 });
 
+test("fde service runtime wires collaboration acknowledge consumer", async () => {
+  const broker = new MemoryEventBroker();
+  const connector = new CapturingFeishuConnector();
+  const runtime = createFdeServiceRuntime({
+    env: {
+      FDE_ENVIRONMENT: "dev",
+      FDE_EVENT_BACKEND: "memory",
+      FEISHU_MODE: "openapi_bot",
+      FEISHU_EVENT_MODE: "disabled",
+      FEISHU_TEST_CHAT_ID: "oc_test"
+    },
+    broker,
+    feishuConnector: connector
+  });
+
+  await runtime.startFeishuEventIngress();
+  await broker.publish(feishuActionEvent());
+
+  assert.equal(connector.updates.length, 1);
+  assert.equal(connector.updates[0].message_id, "om_runtime_ack_001");
+  assert.equal(connector.updates[0].data["status"], "acknowledged");
+});
+
 function listen(server: ReturnType<typeof createFdeServiceRuntime>["server"]): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -183,6 +208,7 @@ function baseUrl(server: ReturnType<typeof createFdeServiceRuntime>["server"]): 
 
 class CapturingFeishuConnector implements IMConnectorService {
   readonly cards: SendCardInput[] = [];
+  readonly updates: UpdateCardInput[] = [];
   readonly chatMemberRequests: Array<{ chat_id: string; limit?: number }> = [];
   chatMembers: Array<{ open_id: string; name?: string }> = [];
   chatMembersError?: Error;
@@ -197,8 +223,8 @@ class CapturingFeishuConnector implements IMConnectorService {
     };
   }
 
-  async updateCard(_input: UpdateCardInput): Promise<void> {
-    return;
+  async updateCard(input: UpdateCardInput): Promise<void> {
+    this.updates.push(input);
   }
 
   async replyMessage(input: ReplyMessageInput): Promise<ReplyMessageResult> {
@@ -252,4 +278,36 @@ class CapturingFeishuLongConnection {
   async close(): Promise<void> {
     this.closed += 1;
   }
+}
+
+function feishuActionEvent(): CloudEvent<FeishuCallbackEvent> {
+  return {
+    specversion: "1.0",
+    id: "evt-runtime-action-001",
+    source: "feishu",
+    type: "feishu.card.action_clicked",
+    subject: "feishu/om_runtime_ack_001",
+    time: "2026-06-27T00:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-runtime-ack-001",
+    trace_id: "trace-runtime-ack-001",
+    run_id: "run-runtime-ack-001",
+    application: "fde-workstation",
+    environment: "dev",
+    data: {
+      type: "feishu.card.action_clicked",
+      message_id: "om_runtime_ack_001",
+      environment: "dev",
+      action: {
+        type: "acknowledge",
+        label: "Acknowledge",
+        value: "startup_acknowledge"
+      },
+      operator: "ou_runtime_user_001",
+      raw_callback_excerpt: "{}",
+      correlation_id: "corr-runtime-ack-001",
+      trace_id: "trace-runtime-ack-001",
+      run_id: "run-runtime-ack-001"
+    }
+  };
 }

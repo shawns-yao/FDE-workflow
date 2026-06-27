@@ -2,11 +2,14 @@ import type { Server } from "node:http";
 import { loadFdeRuntimeConfig } from "../config/env.js";
 import type { Environment } from "../common/contracts.js";
 import { createId } from "../common/ids.js";
+import { CollaborationEventConsumer } from "../agents/collaboration/collaboration-event-consumer.js";
 import { MemoryEventArchiveRepository, type EventArchiveRepository } from "../events/archive.js";
 import type { EventBroker } from "../events/broker.js";
 import { EventHttpHandler } from "../events/event-http-handler.js";
 import { EventIngressService } from "../events/event-ingress-service.js";
 import { EventPublisherService } from "../events/event-publisher.js";
+import { EventSubscriber } from "../events/event-subscriber.js";
+import { MemoryIdempotencyStore } from "../events/idempotency-store.js";
 import { MemoryEventBroker } from "../events/memory-event-broker.js";
 import { createRedisEventInfrastructure, type RedisEventInfrastructure } from "../events/redis-event-infrastructure.js";
 import { FeishuCallbackHandler } from "../connectors/feishu/callback-handler.js";
@@ -46,6 +49,7 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
   const eventBackend = runtimeConfig.event_backend;
   const redisInfrastructure = options.broker ? undefined : createEventInfrastructure(eventBackend, env);
   const broker = options.broker ?? redisInfrastructure?.broker ?? new MemoryEventBroker();
+  const idempotencyStore = redisInfrastructure?.idempotencyStore ?? new MemoryIdempotencyStore();
   const archiveRepository = options.archiveRepository ?? new MemoryEventArchiveRepository();
   const eventPublisher = new EventPublisherService(broker, archiveRepository);
   const feishuConnector = options.feishuConnector ?? createFeishuConnectorFromEnv(env as FeishuConnectorEnv);
@@ -75,6 +79,13 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
       eventPublisher
     })
     : undefined;
+  const collaborationConsumer = new CollaborationEventConsumer(
+    new EventSubscriber(broker, idempotencyStore, archiveRepository),
+    feishuConnector,
+    broker,
+    idempotencyStore
+  );
+  let collaborationConsumerStarted = false;
   const server = createFdeHttpServer({
     environment,
     eventHandler,
@@ -90,6 +101,10 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
     event_backend: options.broker ? "memory" : eventBackend,
     feishu_event_mode: runtimeConfig.feishu.event_mode,
     async startFeishuEventIngress() {
+      if (!collaborationConsumerStarted) {
+        await collaborationConsumer.start();
+        collaborationConsumerStarted = true;
+      }
       await feishuLongConnection?.start();
     },
     async sendFeishuTextMessage(message) {

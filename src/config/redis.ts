@@ -16,16 +16,17 @@ export interface RedisRuntimeConfig {
 export type RedisConfigEnv = Partial<Record<string, string>>;
 
 export function loadRedisConfig(env: RedisConfigEnv = process.env): RedisRuntimeConfig {
-  const parsedUrl = env.REDIS_URL ? new URL(env.REDIS_URL) : undefined;
+  const redisUrl = readOptionalString(env.REDIS_URL);
+  const parsedUrl = redisUrl ? new URL(redisUrl) : undefined;
 
   return {
-    host: env.REDIS_HOST ?? parsedUrl?.hostname ?? "127.0.0.1",
-    port: readNumber(env.REDIS_PORT, parsedUrl?.port ? Number(parsedUrl.port) : 6379),
-    db: readNumber(env.REDIS_DB, parsedUrl?.pathname ? Number(parsedUrl.pathname.slice(1) || 0) : 0),
-    password: env.REDIS_PASSWORD ?? (parsedUrl?.password ? decodeURIComponent(parsedUrl.password) : undefined),
-    keyPrefix: env.REDIS_KEY_PREFIX ?? "fde:",
-    streamName: env.FDE_EVENT_STREAM ?? "fde.events",
-    dlqStreamName: env.FDE_EVENT_DLQ_STREAM ?? "fde.events.dlq",
+    host: readOptionalString(env.REDIS_HOST) ?? parsedUrl?.hostname ?? "127.0.0.1",
+    port: readNumber(readOptionalString(env.REDIS_PORT), parsedUrl?.port ? Number(parsedUrl.port) : 6379),
+    db: readNumber(readOptionalString(env.REDIS_DB), parsedUrl?.pathname ? Number(parsedUrl.pathname.slice(1) || 0) : 0),
+    password: readOptionalString(env.REDIS_PASSWORD) ?? (parsedUrl?.password ? decodeURIComponent(parsedUrl.password) : undefined),
+    keyPrefix: readOptionalString(env.REDIS_KEY_PREFIX) ?? "fde:",
+    streamName: readOptionalString(env.FDE_EVENT_STREAM) ?? "fde.events",
+    dlqStreamName: readOptionalString(env.FDE_EVENT_DLQ_STREAM) ?? "fde.events.dlq",
     blockMs: readNumber(env.FDE_REDIS_BLOCK_MS, 5000),
     batchSize: readNumber(env.FDE_REDIS_BATCH_SIZE, 10),
     pendingIdleMs: readNumber(env.FDE_REDIS_PENDING_IDLE_MS, 30000)
@@ -53,4 +54,9 @@ function readNumber(value: string | undefined, fallback: number): number {
     return fallback;
   }
   return parsed;
+}
+
+function readOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
