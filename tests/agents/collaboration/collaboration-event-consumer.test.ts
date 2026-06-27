@@ -153,6 +153,41 @@ test("collaboration event consumer marks vague replies as ineffective", async ()
   assert.equal(progressData.updated_at, "2026-06-27T04:00:00.000Z");
 });
 
+test("collaboration event consumer records sent notifications as unread progress", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T04:30:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(notificationSentEvent("evt-notification-sent-001"));
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "unread");
+  assert.equal(progressData.notification_id, "ntf-sent-001");
+  assert.equal(progressData.message_id, "om_sent_001");
+  assert.equal(progressData.updated_at, "2026-06-27T04:30:00.000Z");
+});
+
+test("collaboration event consumer ignores duplicate sent notification progress records", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore);
+
+  await consumer.start();
+  await broker.publish(notificationSentEvent("evt-notification-sent-001"));
+  await broker.publish(notificationSentEvent("evt-notification-sent-002"));
+
+  assert.equal(broker.published.filter((event) => event.type === "collaboration.progress.updated").length, 1);
+});
+
 test("collaboration event consumer triggers escalation on notification timeout", async () => {
   const broker = new CapturingBroker();
   const idempotencyStore = new MemoryIdempotencyStore();
@@ -438,6 +473,30 @@ function timeoutEvent(id: string): CloudEvent<Record<string, unknown>> {
       message_id: "om_timeout_001",
       diagnosis_id: "diag-timeout-001",
       timeout_reason: "no_response"
+    }
+  };
+}
+
+function notificationSentEvent(id: string): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "collaboration",
+    type: "collaboration.notification.sent",
+    subject: "notification/ntf-sent-001",
+    time: "2026-06-27T04:20:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-sent-001",
+    trace_id: "trace-sent-001",
+    run_id: "run-sent-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      notification_id: "ntf-sent-001",
+      status: "sent",
+      message_id: "om_sent_001",
+      target_id: "oc_target",
+      sent_at: "2026-06-27T04:20:00.000Z"
     }
   };
 }

@@ -275,6 +275,17 @@
 - **验证记录**：新增聚焦测试覆盖无目标升级事件使用默认目标发送飞书升级卡片，以及服务运行时从环境变量传入默认升级目标。
 - **剩余细节**：服务器环境变量尚未配置，升级策略选择、多级升级、升级发送失败重试策略细化、升级卡片正式模板和完整协同状态机仍未实现。
 
+### DONE-20260627-13：通知已发送事件进入未读进度
+
+- **状态**：已完成本地代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
+- **说明**：Collaboration Event Consumer 支持消费 `collaboration.notification.sent`。当通知发送结果包含 `message_id` 时，消费者会发布 `collaboration.progress.updated`，将通知对应进度标记为 `status=unread`，为后续 acknowledge、claim、reply、timeout 和日报汇总提供初始状态。
+- **幂等策略**：按 `notification_id` 优先、否则按 `message_id` 生成业务幂等键，重复通知发送事件不会重复生成未读进度。
+- **验证记录**：新增聚焦测试覆盖通知发送成功后生成 `unread` 进度，以及同一通知重复发送事件不重复生成进度。
+- **剩余细节**：未实现持久化 `progress-record.json`，日报聚合仍未接入该进度事件；服务器联调尚未验证真实通知发送事件进入该链路。
+
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
 - **状态**：已完成

@@ -64,10 +64,10 @@ export interface CollaborationNotificationResultData {
   error?: SendCardResult["error"];
 }
 
-export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation";
+export type CollaborationProgressStatus = "unread" | "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation";
 export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
 export type CollaborationReplyEffectiveness = "effective" | "ineffective";
-type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationTimeoutData | CollaborationEscalationTriggeredData;
+type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationResultData | CollaborationNotificationTimeoutData | CollaborationEscalationTriggeredData;
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
@@ -84,10 +84,14 @@ export class CollaborationEventConsumer {
 
   async start(): Promise<void> {
     await this.subscriber.subscribe<CollaborationConsumerEventData>(
-      ["feishu.card.action_clicked", "feishu.message.replied", "collaboration.notification.timeout", "collaboration.escalation.triggered"],
+      ["feishu.card.action_clicked", "feishu.message.replied", "collaboration.notification.sent", "collaboration.notification.timeout", "collaboration.escalation.triggered"],
       async (event) => {
         if (event.type === "collaboration.escalation.triggered") {
           await this.handleEscalationTriggered(event as CloudEvent<CollaborationEscalationTriggeredData>);
+          return;
+        }
+        if (event.type === "collaboration.notification.sent") {
+          await this.handleNotificationSent(event as CloudEvent<CollaborationNotificationResultData>);
           return;
         }
         if (event.type === "collaboration.notification.timeout") {
@@ -161,6 +165,30 @@ export class CollaborationEventConsumer {
     const updatedAt = this.now().toISOString();
     const progress = toReplyProgressUpdatedData(event, latestReply, updatedAt);
     await this.broker.publish(toProgressUpdatedEvent(event, progress));
+  }
+
+  private async handleNotificationSent(event: CloudEvent<CollaborationNotificationResultData>): Promise<void> {
+    const messageId = event.data.message_id?.trim();
+    if (!messageId) {
+      return;
+    }
+
+    const idempotencyKey = collaborationNotificationSentKey(event.data.notification_id, messageId);
+    const existingState = await this.idempotencyStore.get(idempotencyKey);
+    if (existingState === "processed" || existingState === "processing") {
+      return;
+    }
+
+    await this.idempotencyStore.set(idempotencyKey, "processing");
+    try {
+      const updatedAt = this.now().toISOString();
+      const progress = toNotificationSentProgressUpdatedData(event, messageId, updatedAt);
+      await this.broker.publish(toProgressUpdatedEvent(event, progress));
+      await this.idempotencyStore.set(idempotencyKey, "processed");
+    } catch (error) {
+      await this.idempotencyStore.set(idempotencyKey, "failed");
+      throw error;
+    }
   }
 
   private async handleNotificationTimeout(event: CloudEvent<CollaborationNotificationTimeoutData>): Promise<void> {
@@ -291,6 +319,19 @@ function toReplyProgressUpdatedData(
   };
 }
 
+function toNotificationSentProgressUpdatedData(
+  event: CloudEvent<CollaborationNotificationResultData>,
+  messageId: string,
+  updatedAt: string
+): CollaborationProgressUpdatedData {
+  return {
+    notification_id: event.data.notification_id,
+    message_id: messageId,
+    status: "unread",
+    updated_at: updatedAt
+  };
+}
+
 function toTimeoutProgressUpdatedData(
   event: CloudEvent<CollaborationNotificationTimeoutData>,
   messageId: string,
@@ -346,7 +387,7 @@ function toProgressStatus(action: CollaborationProgressActionType): Collaboratio
 }
 
 function toProgressUpdatedEvent(
-  event: CloudEvent<FeishuCallbackEvent | CollaborationNotificationTimeoutData>,
+  event: CloudEvent<FeishuCallbackEvent | CollaborationNotificationResultData | CollaborationNotificationTimeoutData>,
   progress: CollaborationProgressUpdatedData
 ): CloudEvent<CollaborationProgressUpdatedData> {
   return {
@@ -424,6 +465,10 @@ function collaborationActionKey(messageId: string, actionType: string, actionVal
 
 function collaborationTimeoutKey(notificationId: string | undefined, messageId: string): string {
   return `collaboration:timeout:${notificationId?.trim() || messageId}`;
+}
+
+function collaborationNotificationSentKey(notificationId: string | undefined, messageId: string): string {
+  return `collaboration:notification-sent:${notificationId?.trim() || messageId}`;
 }
 
 function collaborationEscalationSendKey(
