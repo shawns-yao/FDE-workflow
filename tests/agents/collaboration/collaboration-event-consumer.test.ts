@@ -227,6 +227,32 @@ test("collaboration event consumer sends escalation notices to Feishu target", a
   assert.equal(sentData.target_id, "oc_escalation");
 });
 
+test("collaboration event consumer sends escalation notices to default target when event has no target", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    escalationTarget: {
+      target_type: "chat",
+      target_id: "oc_default_escalation"
+    }
+  });
+
+  await consumer.start();
+  await broker.publish(escalationTriggeredEventWithoutTarget("evt-escalation-default-001"));
+
+  assert.equal(connector.cards.length, 1);
+  assert.equal(connector.cards[0].target_type, "chat");
+  assert.equal(connector.cards[0].target_id, "oc_default_escalation");
+
+  const sentEvent = broker.published.find((event) => event.type === "collaboration.notification.sent");
+  assert.ok(sentEvent);
+  const sentData = sentEvent.data as CollaborationNotificationResultData;
+  assert.equal(sentData.status, "sent");
+  assert.equal(sentData.target_id, "oc_default_escalation");
+});
+
 test("collaboration event consumer ignores duplicate escalation notice sends", async () => {
   const broker = new CapturingBroker();
   const idempotencyStore = new MemoryIdempotencyStore();
@@ -439,6 +465,32 @@ function escalationTriggeredEvent(id: string): CloudEvent<Record<string, unknown
       reason: "no_response",
       target_type: "chat",
       target_id: "oc_escalation",
+      triggered_at: "2026-06-27T05:00:00.000Z"
+    }
+  };
+}
+
+function escalationTriggeredEventWithoutTarget(id: string): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "collaboration",
+    type: "collaboration.escalation.triggered",
+    subject: "notification/ntf-timeout-001/escalation",
+    time: "2026-06-27T05:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-escalation-001",
+    trace_id: "trace-escalation-001",
+    run_id: "run-escalation-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      notification_id: "ntf-timeout-001",
+      message_id: "om_timeout_001",
+      diagnosis_id: "diag-timeout-001",
+      status: "needs_escalation",
+      reason_code: "notification_timeout",
+      reason: "no_response",
       triggered_at: "2026-06-27T05:00:00.000Z"
     }
   };

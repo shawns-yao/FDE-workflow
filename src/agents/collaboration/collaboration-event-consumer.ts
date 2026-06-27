@@ -11,6 +11,12 @@ export interface CollaborationEventConsumerOptions {
   queue_name?: string;
   max_attempts?: number;
   now?: () => Date;
+  escalationTarget?: CollaborationEscalationTarget;
+}
+
+export interface CollaborationEscalationTarget {
+  target_type: FeishuTargetType;
+  target_id: string;
 }
 
 export interface CollaborationProgressUpdatedData {
@@ -183,12 +189,12 @@ export class CollaborationEventConsumer {
   }
 
   private async handleEscalationTriggered(event: CloudEvent<CollaborationEscalationTriggeredData>): Promise<void> {
-    const targetId = event.data.target_id?.trim();
-    if (!event.data.target_type || !targetId) {
+    const target = readEscalationTarget(event.data, this.options.escalationTarget);
+    if (!target) {
       return;
     }
 
-    const idempotencyKey = collaborationEscalationSendKey(event.data.notification_id, event.data.message_id, event.data.target_type, targetId);
+    const idempotencyKey = collaborationEscalationSendKey(event.data.notification_id, event.data.message_id, target.target_type, target.target_id);
     const existingState = await this.idempotencyStore.get(idempotencyKey);
     if (existingState === "processed" || existingState === "processing") {
       return;
@@ -198,15 +204,17 @@ export class CollaborationEventConsumer {
     try {
       const result = await this.connector.sendCard({
         mode: "openapi_bot",
-        target_type: event.data.target_type,
-        target_id: targetId,
+        target_type: target.target_type,
+        target_id: target.target_id,
         card_type: "escalation_notice",
         title: "FDE Workstation Escalation",
         summary: `Escalation required: ${event.data.reason_code}`,
         severity: "high",
         actions: [],
         data: {
-          ...event.data
+          ...event.data,
+          target_type: target.target_type,
+          target_id: target.target_id
         },
         correlation_id: event.correlation_id,
         trace_id: event.trace_id,
@@ -220,6 +228,29 @@ export class CollaborationEventConsumer {
       throw error;
     }
   }
+}
+
+function readEscalationTarget(
+  data: CollaborationEscalationTriggeredData,
+  fallback: CollaborationEscalationTarget | undefined
+): CollaborationEscalationTarget | undefined {
+  const eventTargetId = data.target_id?.trim();
+  if (data.target_type && eventTargetId) {
+    return {
+      target_type: data.target_type,
+      target_id: eventTargetId
+    };
+  }
+
+  const fallbackTargetId = fallback?.target_id.trim();
+  if (!fallback || !fallbackTargetId) {
+    return undefined;
+  }
+
+  return {
+    target_type: fallback.target_type,
+    target_id: fallbackTargetId
+  };
 }
 
 function toProgressUpdatedData(

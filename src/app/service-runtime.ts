@@ -15,7 +15,7 @@ import { createRedisEventInfrastructure, type RedisEventInfrastructure } from ".
 import { FeishuCallbackHandler } from "../connectors/feishu/callback-handler.js";
 import { createFeishuConnectorFromEnv, type FeishuConnectorEnv } from "../connectors/feishu/connector-factory.js";
 import type { IMConnectorService } from "../connectors/feishu/connector.js";
-import type { FeishuAction, FeishuMention, FeishuMode, SendCardResult } from "../connectors/feishu/types.js";
+import type { FeishuAction, FeishuMention, FeishuMode, FeishuTargetType, SendCardResult } from "../connectors/feishu/types.js";
 import { FeishuLongConnectionClient, type FeishuLongConnectionClientLike } from "../connectors/feishu/long-connection-client.js";
 import { loadZhMessages, type ZhMessages } from "../i18n/messages.js";
 import { createFdeHttpServer, type FdeReadinessState } from "./fde-http-server.js";
@@ -83,7 +83,10 @@ export function createFdeServiceRuntime(options: FdeServiceRuntimeOptions = {}):
     new EventSubscriber(broker, idempotencyStore, archiveRepository),
     feishuConnector,
     broker,
-    idempotencyStore
+    idempotencyStore,
+    {
+      escalationTarget: readEscalationTargetFromEnv(env)
+    }
   );
   let collaborationConsumerStarted = false;
   const server = createFdeHttpServer({
@@ -184,6 +187,25 @@ function createEventInfrastructure(
 
 function readFeishuMode(env: NodeJS.ProcessEnv): FeishuMode {
   return env.FEISHU_MODE === "webhook_bot" ? "webhook_bot" : "openapi_bot";
+}
+
+function readEscalationTargetFromEnv(env: NodeJS.ProcessEnv): { target_type: FeishuTargetType; target_id: string } | undefined {
+  const targetId = env.FEISHU_ESCALATION_TARGET_ID?.trim();
+  if (!targetId) {
+    return undefined;
+  }
+  return {
+    target_type: readFeishuTargetType(env.FEISHU_ESCALATION_TARGET_TYPE),
+    target_id: targetId
+  };
+}
+
+function readFeishuTargetType(value: string | undefined): FeishuTargetType {
+  const normalized = value?.trim();
+  if (normalized === "chat" || normalized === "group" || normalized === "user") {
+    return normalized;
+  }
+  return "chat";
 }
 
 async function readStartupMentions(env: NodeJS.ProcessEnv, connector: IMConnectorService, targetId: string): Promise<FeishuMention[] | undefined> {

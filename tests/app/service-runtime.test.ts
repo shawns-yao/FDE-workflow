@@ -191,6 +191,32 @@ test("fde service runtime wires collaboration acknowledge consumer", async () =>
   assert.equal(connector.updates[0].data["status"], "acknowledged");
 });
 
+test("fde service runtime wires collaboration escalation default target from env", async () => {
+  const broker = new MemoryEventBroker();
+  const connector = new CapturingFeishuConnector();
+  const runtime = createFdeServiceRuntime({
+    env: {
+      FDE_ENVIRONMENT: "dev",
+      FDE_EVENT_BACKEND: "memory",
+      FEISHU_MODE: "openapi_bot",
+      FEISHU_EVENT_MODE: "disabled",
+      FEISHU_TEST_CHAT_ID: "oc_test",
+      FEISHU_ESCALATION_TARGET_TYPE: "chat",
+      FEISHU_ESCALATION_TARGET_ID: "oc_default_escalation"
+    },
+    broker,
+    feishuConnector: connector
+  });
+
+  await runtime.startFeishuEventIngress();
+  await broker.publish(collaborationEscalationEventWithoutTarget());
+
+  assert.equal(connector.cards.length, 1);
+  assert.equal(connector.cards[0].target_type, "chat");
+  assert.equal(connector.cards[0].target_id, "oc_default_escalation");
+  assert.equal(connector.cards[0].card_type, "escalation_notice");
+});
+
 function listen(server: ReturnType<typeof createFdeServiceRuntime>["server"]): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -308,6 +334,32 @@ function feishuActionEvent(): CloudEvent<FeishuCallbackEvent> {
       correlation_id: "corr-runtime-ack-001",
       trace_id: "trace-runtime-ack-001",
       run_id: "run-runtime-ack-001"
+    }
+  };
+}
+
+function collaborationEscalationEventWithoutTarget(): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id: "evt-runtime-escalation-001",
+    source: "collaboration",
+    type: "collaboration.escalation.triggered",
+    subject: "notification/ntf-runtime-timeout-001/escalation",
+    time: "2026-06-27T05:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-runtime-escalation-001",
+    trace_id: "trace-runtime-escalation-001",
+    run_id: "run-runtime-escalation-001",
+    application: "fde-workstation",
+    environment: "dev",
+    data: {
+      notification_id: "ntf-runtime-timeout-001",
+      message_id: "om_runtime_timeout_001",
+      diagnosis_id: "diag-runtime-timeout-001",
+      status: "needs_escalation",
+      reason_code: "notification_timeout",
+      reason: "no_response",
+      triggered_at: "2026-06-27T05:00:00.000Z"
     }
   };
 }
