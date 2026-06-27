@@ -25,8 +25,8 @@ export interface CollaborationProgressUpdatedData {
   updated_at: string;
 }
 
-export type CollaborationProgressStatus = "acknowledged" | "investigating";
-export type CollaborationProgressActionType = "acknowledge" | "claim";
+export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed";
+export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
@@ -120,7 +120,7 @@ function toProgressUpdatedData(
 }
 
 function readProgressAction(actionType: FeishuActionType | undefined): CollaborationProgressActionType | undefined {
-  if (actionType === "acknowledge" || actionType === "claim") {
+  if (actionType === "acknowledge" || actionType === "claim" || actionType === "mark_fixed") {
     return actionType;
   }
   return undefined;
@@ -129,6 +129,9 @@ function readProgressAction(actionType: FeishuActionType | undefined): Collabora
 function toProgressStatus(action: CollaborationProgressActionType): CollaborationProgressStatus {
   if (action === "claim") {
     return "investigating";
+  }
+  if (action === "mark_fixed") {
+    return "fixed";
   }
   return "acknowledged";
 }

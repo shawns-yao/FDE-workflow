@@ -81,6 +81,31 @@ test("collaboration event consumer claims a Feishu card action as investigating"
   assert.equal(progressData.updated_at, "2026-06-27T01:00:00.000Z");
 });
 
+test("collaboration event consumer marks a Feishu card action as fixed", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T02:00:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(actionEvent("evt-action-fixed-001", "mark_fixed", "mark_fixed"));
+
+  assert.equal(connector.updates.length, 1);
+  assert.equal(connector.updates[0].message_id, "om_ack_001");
+  assert.equal(connector.updates[0].data["status"], "fixed");
+  assert.equal(connector.updates[0].data["action_type"], "mark_fixed");
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "fixed");
+  assert.equal(progressData.action_type, "mark_fixed");
+  assert.equal(progressData.updated_at, "2026-06-27T02:00:00.000Z");
+});
+
 class CapturingBroker implements EventBroker {
   private readonly subscriptions: Array<{ eventTypes: EventType[]; handler: EventHandler; options: SubscribeOptions }> = [];
   readonly published: CloudEvent[] = [];
@@ -168,7 +193,7 @@ class CapturingFeishuConnector implements IMConnectorService {
 
 function actionEvent(
   id: string,
-  actionType: "acknowledge" | "claim" = "acknowledge",
+  actionType: "acknowledge" | "claim" | "mark_fixed" = "acknowledge",
   actionValue = "startup_acknowledge"
 ): CloudEvent<FeishuCallbackEvent> {
   return {
