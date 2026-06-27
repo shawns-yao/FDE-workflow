@@ -15,6 +15,8 @@ export interface CollaborationEventConsumerOptions {
 
 export interface CollaborationProgressUpdatedData {
   message_id: string;
+  notification_id?: string;
+  diagnosis_id?: string;
   status: CollaborationProgressStatus;
   actor?: {
     type: "user";
@@ -27,9 +29,27 @@ export interface CollaborationProgressUpdatedData {
   updated_at: string;
 }
 
-export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed" | "ineffective_reply";
+export interface CollaborationNotificationTimeoutData {
+  notification_id?: string;
+  message_id?: string;
+  diagnosis_id?: string;
+  timeout_reason?: string;
+}
+
+export interface CollaborationEscalationTriggeredData {
+  notification_id?: string;
+  message_id: string;
+  diagnosis_id?: string;
+  status: "needs_escalation";
+  reason_code: "notification_timeout";
+  reason?: string;
+  triggered_at: string;
+}
+
+export type CollaborationProgressStatus = "acknowledged" | "investigating" | "fixed" | "ineffective_reply" | "needs_escalation";
 export type CollaborationProgressActionType = "acknowledge" | "claim" | "mark_fixed";
 export type CollaborationReplyEffectiveness = "effective" | "ineffective";
+type CollaborationConsumerEventData = FeishuCallbackEvent | CollaborationNotificationTimeoutData;
 
 export class CollaborationEventConsumer {
   private readonly now: () => Date;
@@ -45,14 +65,18 @@ export class CollaborationEventConsumer {
   }
 
   async start(): Promise<void> {
-    await this.subscriber.subscribe<FeishuCallbackEvent>(
-      ["feishu.card.action_clicked", "feishu.message.replied"],
+    await this.subscriber.subscribe<CollaborationConsumerEventData>(
+      ["feishu.card.action_clicked", "feishu.message.replied", "collaboration.notification.timeout"],
       async (event) => {
-        if (event.type === "feishu.message.replied") {
-          await this.handleMessageReplied(event);
+        if (event.type === "collaboration.notification.timeout") {
+          await this.handleNotificationTimeout(event as CloudEvent<CollaborationNotificationTimeoutData>);
           return;
         }
-        await this.handleCardActionClicked(event);
+        if (event.type === "feishu.message.replied") {
+          await this.handleMessageReplied(event as CloudEvent<FeishuCallbackEvent>);
+          return;
+        }
+        await this.handleCardActionClicked(event as CloudEvent<FeishuCallbackEvent>);
       },
       {
         consumer_id: this.options.consumer_id ?? "collaboration-agent",
@@ -116,6 +140,31 @@ export class CollaborationEventConsumer {
     const progress = toReplyProgressUpdatedData(event, latestReply, updatedAt);
     await this.broker.publish(toProgressUpdatedEvent(event, progress));
   }
+
+  private async handleNotificationTimeout(event: CloudEvent<CollaborationNotificationTimeoutData>): Promise<void> {
+    const messageId = event.data.message_id?.trim();
+    if (!messageId) {
+      return;
+    }
+
+    const idempotencyKey = collaborationTimeoutKey(event.data.notification_id, messageId);
+    const existingState = await this.idempotencyStore.get(idempotencyKey);
+    if (existingState === "processed" || existingState === "processing") {
+      return;
+    }
+
+    await this.idempotencyStore.set(idempotencyKey, "processing");
+    const updatedAt = this.now().toISOString();
+    try {
+      const progress = toTimeoutProgressUpdatedData(event, messageId, updatedAt);
+      await this.broker.publish(toProgressUpdatedEvent(event, progress));
+      await this.broker.publish(toEscalationTriggeredEvent(event, toEscalationTriggeredData(event, messageId, updatedAt)));
+      await this.idempotencyStore.set(idempotencyKey, "processed");
+    } catch (error) {
+      await this.idempotencyStore.set(idempotencyKey, "failed");
+      throw error;
+    }
+  }
 }
 
 function toProgressUpdatedData(
@@ -156,6 +205,36 @@ function toReplyProgressUpdatedData(
   };
 }
 
+function toTimeoutProgressUpdatedData(
+  event: CloudEvent<CollaborationNotificationTimeoutData>,
+  messageId: string,
+  updatedAt: string
+): CollaborationProgressUpdatedData {
+  return {
+    notification_id: event.data.notification_id,
+    message_id: messageId,
+    diagnosis_id: event.data.diagnosis_id,
+    status: "needs_escalation",
+    updated_at: updatedAt
+  };
+}
+
+function toEscalationTriggeredData(
+  event: CloudEvent<CollaborationNotificationTimeoutData>,
+  messageId: string,
+  triggeredAt: string
+): CollaborationEscalationTriggeredData {
+  return {
+    notification_id: event.data.notification_id,
+    message_id: messageId,
+    diagnosis_id: event.data.diagnosis_id,
+    status: "needs_escalation",
+    reason_code: "notification_timeout",
+    reason: event.data.timeout_reason,
+    triggered_at: triggeredAt
+  };
+}
+
 function classifyReply(reply: string): CollaborationReplyEffectiveness {
   if (/正在|处理|排查|查看|修复|我来|认领/u.test(reply)) {
     return "effective";
@@ -181,7 +260,7 @@ function toProgressStatus(action: CollaborationProgressActionType): Collaboratio
 }
 
 function toProgressUpdatedEvent(
-  event: CloudEvent<FeishuCallbackEvent>,
+  event: CloudEvent<FeishuCallbackEvent | CollaborationNotificationTimeoutData>,
   progress: CollaborationProgressUpdatedData
 ): CloudEvent<CollaborationProgressUpdatedData> {
   return {
@@ -201,6 +280,31 @@ function toProgressUpdatedEvent(
   };
 }
 
+function toEscalationTriggeredEvent(
+  event: CloudEvent<CollaborationNotificationTimeoutData>,
+  escalation: CollaborationEscalationTriggeredData
+): CloudEvent<CollaborationEscalationTriggeredData> {
+  return {
+    specversion: "1.0",
+    id: createId("evt"),
+    source: "collaboration",
+    type: "collaboration.escalation.triggered",
+    subject: `notification/${escalation.notification_id ?? escalation.message_id}/escalation`,
+    time: escalation.triggered_at,
+    datacontenttype: "application/json",
+    correlation_id: event.correlation_id,
+    trace_id: event.trace_id,
+    run_id: event.run_id,
+    application: event.application,
+    environment: event.environment,
+    data: escalation
+  };
+}
+
 function collaborationActionKey(messageId: string, actionType: string, actionValue: string | undefined): string {
   return `collaboration:action:${messageId}:${actionType}:${actionValue ?? ""}`;
+}
+
+function collaborationTimeoutKey(notificationId: string | undefined, messageId: string): string {
+  return `collaboration:timeout:${notificationId?.trim() || messageId}`;
 }

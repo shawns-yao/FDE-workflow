@@ -8,7 +8,7 @@ import type { EventType } from "../../../src/events/event-types.js";
 import { MemoryIdempotencyStore } from "../../../src/events/idempotency-store.js";
 import type { IMConnectorService } from "../../../src/connectors/feishu/connector.js";
 import type { FeishuCallbackEvent, FeishuCallbackInput, MentionUserInput, MentionUserResult, ReplyMessageInput, ReplyMessageResult, SendCardInput, SendCardResult, UpdateCardInput } from "../../../src/connectors/feishu/types.js";
-import { CollaborationEventConsumer, type CollaborationProgressUpdatedData } from "../../../src/agents/collaboration/collaboration-event-consumer.js";
+import { CollaborationEventConsumer, type CollaborationEscalationTriggeredData, type CollaborationProgressUpdatedData } from "../../../src/agents/collaboration/collaboration-event-consumer.js";
 
 test("collaboration event consumer acknowledges a Feishu card action", async () => {
   const broker = new CapturingBroker();
@@ -151,6 +151,53 @@ test("collaboration event consumer marks vague replies as ineffective", async ()
   assert.equal(progressData.reply_effectiveness, "ineffective");
   assert.equal(progressData.action_type, undefined);
   assert.equal(progressData.updated_at, "2026-06-27T04:00:00.000Z");
+});
+
+test("collaboration event consumer triggers escalation on notification timeout", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore, {
+    now: () => new Date("2026-06-27T05:00:00.000Z")
+  });
+
+  await consumer.start();
+  await broker.publish(timeoutEvent("evt-timeout-001"));
+
+  assert.equal(connector.updates.length, 0);
+
+  const progressEvent = broker.published.find((event) => event.type === "collaboration.progress.updated");
+  assert.ok(progressEvent);
+  const progressData = progressEvent.data as CollaborationProgressUpdatedData;
+  assert.equal(progressData.status, "needs_escalation");
+  assert.equal(progressData.message_id, "om_timeout_001");
+  assert.equal(progressData.notification_id, "ntf-timeout-001");
+  assert.equal(progressData.updated_at, "2026-06-27T05:00:00.000Z");
+
+  const escalationEvent = broker.published.find((event) => event.type === "collaboration.escalation.triggered");
+  assert.ok(escalationEvent);
+  const escalationData = escalationEvent.data as CollaborationEscalationTriggeredData;
+  assert.equal(escalationData.status, "needs_escalation");
+  assert.equal(escalationData.reason_code, "notification_timeout");
+  assert.equal(escalationData.message_id, "om_timeout_001");
+  assert.equal(escalationData.notification_id, "ntf-timeout-001");
+  assert.equal(escalationData.triggered_at, "2026-06-27T05:00:00.000Z");
+});
+
+test("collaboration event consumer ignores duplicate notification timeouts", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore);
+
+  await consumer.start();
+  await broker.publish(timeoutEvent("evt-timeout-001"));
+  await broker.publish(timeoutEvent("evt-timeout-002"));
+
+  assert.equal(broker.published.filter((event) => event.type === "collaboration.progress.updated").length, 1);
+  assert.equal(broker.published.filter((event) => event.type === "collaboration.escalation.triggered").length, 1);
 });
 
 class CapturingBroker implements EventBroker {
@@ -298,6 +345,29 @@ function replyEvent(id: string, latestReply: string): CloudEvent<FeishuCallbackE
       correlation_id: "corr-reply-001",
       trace_id: "trace-reply-001",
       run_id: "run-reply-001"
+    }
+  };
+}
+
+function timeoutEvent(id: string): CloudEvent<Record<string, unknown>> {
+  return {
+    specversion: "1.0",
+    id,
+    source: "collaboration",
+    type: "collaboration.notification.timeout",
+    subject: "notification/ntf-timeout-001",
+    time: "2026-06-27T00:00:00.000Z",
+    datacontenttype: "application/json",
+    correlation_id: "corr-timeout-001",
+    trace_id: "trace-timeout-001",
+    run_id: "run-timeout-001",
+    application: "fde-workstation",
+    environment: "prod",
+    data: {
+      notification_id: "ntf-timeout-001",
+      message_id: "om_timeout_001",
+      diagnosis_id: "diag-timeout-001",
+      timeout_reason: "no_response"
     }
   };
 }

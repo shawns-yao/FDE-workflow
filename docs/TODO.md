@@ -220,7 +220,7 @@
 - **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
 - **说明**：Collaboration Event Consumer 支持消费 `claim` 卡片动作，并将协同进度状态映射为 `investigating`。消费者会更新原飞书卡片，发布 `collaboration.progress.updated`，并复用现有 `message_id + action_type + action_value` 幂等策略。
 - **验证记录**：新增聚焦测试覆盖 `claim -> investigating`，并确认原有 `acknowledge -> acknowledged` 行为仍通过。
-- **剩余细节**：超时升级和完整协同状态机仍未实现。
+- **剩余细节**：完整协同状态机仍未实现。
 
 ### DONE-20260627-08：飞书卡片 mark_fixed 动作进入 fixed 状态
 
@@ -230,7 +230,7 @@
 - **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
 - **说明**：Collaboration Event Consumer 支持消费 `mark_fixed` 卡片动作，并将协同进度状态映射为 `fixed`。消费者会更新原飞书卡片，发布 `collaboration.progress.updated`，并复用现有业务幂等策略。
 - **验证记录**：新增聚焦测试覆盖 `mark_fixed -> fixed`，并确认 `acknowledge -> acknowledged`、`claim -> investigating` 行为仍通过。
-- **剩余细节**：超时升级和完整协同状态机仍未实现。
+- **剩余细节**：完整协同状态机仍未实现。
 
 ### DONE-20260627-09：飞书消息回复确定性进度识别
 
@@ -240,7 +240,18 @@
 - **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`src/connectors/feishu/types.ts`、`src/connectors/feishu/long-connection-client.ts`、`src/connectors/feishu/memory-feishu-connector.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`、`tests/connectors/feishu/long-connection-client.test.ts`、`tests/connectors/feishu/callback-handler.test.ts`
 - **说明**：飞书 `im.message.receive_v1` 和 HTTP callback 回复事件会结构化提取 `latest_reply`。Collaboration Event Consumer 订阅 `feishu.message.replied`，对明确处理类回复做确定性识别，发布 `collaboration.progress.updated` 并标记 `status=investigating`、`reply_effectiveness=effective`；含糊回复标记为 `status=ineffective_reply`、`reply_effectiveness=ineffective`。该阶段不调用 AI。
 - **验证记录**：新增聚焦测试覆盖长连接回复正文提取、HTTP callback 回复正文提取、有效回复进入 `investigating` 和含糊回复进入 `ineffective_reply`。
-- **剩余细节**：回复有效性当前只使用关键词规则，后续需要接入 Collaboration Agent 的 Claude API 契约输出 evidence 和 confidence；超时升级和完整协同状态机仍未实现。
+- **剩余细节**：回复有效性当前只使用关键词规则，后续需要接入 Collaboration Agent 的 Claude API 契约输出 evidence 和 confidence；完整协同状态机仍未实现。
+
+### DONE-20260627-10：协同通知超时触发升级事件
+
+- **状态**：已完成最小代码实现，待服务器联调验证
+- **提出时间**：2026-06-27
+- **完成时间**：2026-06-27
+- **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
+- **说明**：Collaboration Event Consumer 订阅 `collaboration.notification.timeout`。收到超时事件后，如果包含 `message_id`，会发布 `collaboration.progress.updated` 并标记 `status=needs_escalation`，同时发布 `collaboration.escalation.triggered`，`reason_code=notification_timeout`。该阶段只生成升级事件，不直接发送新的飞书升级通知。
+- **幂等策略**：按 `notification_id` 优先、否则按 `message_id` 生成业务幂等键，重复超时事件不会重复发布进度事件或升级事件。
+- **验证记录**：新增聚焦测试覆盖超时触发升级事件，以及同一通知重复超时不重复升级。
+- **剩余细节**：升级策略配置、升级目标选择、升级通知发送和完整协同状态机仍未实现。
 
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界
 
