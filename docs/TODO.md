@@ -260,7 +260,8 @@
 - **完成时间**：2026-06-27
 - **影响范围**：`src/agents/collaboration/collaboration-event-consumer.ts`、`tests/agents/collaboration/collaboration-event-consumer.test.ts`
 - **说明**：Collaboration Event Consumer 订阅 `collaboration.escalation.triggered`。当升级事件携带 `target_type` 和 `target_id` 时，消费者会调用飞书连接器 `sendCard` 发送 `escalation_notice` 卡片，并发布 `collaboration.notification.sent` 或 `collaboration.notification.failed`。当前只消费事件中显式给出的升级目标，不自行选择目标。
-- **验证记录**：新增聚焦测试覆盖带目标升级事件发送飞书升级卡片，并发布 `collaboration.notification.sent`。
+- **幂等策略**：按 `notification_id` 优先、否则按升级事件的 `message_id`，再加 `target_type + target_id` 生成业务幂等键，重复升级事件不会重复发送飞书卡片或重复发布通知结果事件。
+- **验证记录**：新增聚焦测试覆盖带目标升级事件发送飞书升级卡片、发布 `collaboration.notification.sent`，以及重复升级事件不重复发送。
 - **剩余细节**：升级目标选择、升级策略配置、升级发送失败重试策略细化、升级卡片正式模板和完整协同状态机仍未实现。
 
 ### DONE-20260625-01：Docker / Nginx 第一阶段线上边界

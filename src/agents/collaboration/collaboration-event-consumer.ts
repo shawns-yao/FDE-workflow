@@ -188,24 +188,37 @@ export class CollaborationEventConsumer {
       return;
     }
 
-    const result = await this.connector.sendCard({
-      mode: "openapi_bot",
-      target_type: event.data.target_type,
-      target_id: targetId,
-      card_type: "escalation_notice",
-      title: "FDE Workstation Escalation",
-      summary: `Escalation required: ${event.data.reason_code}`,
-      severity: "high",
-      actions: [],
-      data: {
-        ...event.data
-      },
-      correlation_id: event.correlation_id,
-      trace_id: event.trace_id,
-      run_id: event.run_id
-    });
+    const idempotencyKey = collaborationEscalationSendKey(event.data.notification_id, event.data.message_id, event.data.target_type, targetId);
+    const existingState = await this.idempotencyStore.get(idempotencyKey);
+    if (existingState === "processed" || existingState === "processing") {
+      return;
+    }
 
-    await this.broker.publish(toNotificationResultEvent(event, result));
+    await this.idempotencyStore.set(idempotencyKey, "processing");
+    try {
+      const result = await this.connector.sendCard({
+        mode: "openapi_bot",
+        target_type: event.data.target_type,
+        target_id: targetId,
+        card_type: "escalation_notice",
+        title: "FDE Workstation Escalation",
+        summary: `Escalation required: ${event.data.reason_code}`,
+        severity: "high",
+        actions: [],
+        data: {
+          ...event.data
+        },
+        correlation_id: event.correlation_id,
+        trace_id: event.trace_id,
+        run_id: event.run_id
+      });
+
+      await this.broker.publish(toNotificationResultEvent(event, result));
+      await this.idempotencyStore.set(idempotencyKey, result.status === "sent" ? "processed" : "failed");
+    } catch (error) {
+      await this.idempotencyStore.set(idempotencyKey, "failed");
+      throw error;
+    }
   }
 }
 
@@ -380,4 +393,13 @@ function collaborationActionKey(messageId: string, actionType: string, actionVal
 
 function collaborationTimeoutKey(notificationId: string | undefined, messageId: string): string {
   return `collaboration:timeout:${notificationId?.trim() || messageId}`;
+}
+
+function collaborationEscalationSendKey(
+  notificationId: string | undefined,
+  messageId: string,
+  targetType: FeishuTargetType,
+  targetId: string
+): string {
+  return `collaboration:escalation:${notificationId?.trim() || messageId}:${targetType}:${targetId}`;
 }

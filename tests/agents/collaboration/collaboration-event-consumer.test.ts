@@ -227,6 +227,21 @@ test("collaboration event consumer sends escalation notices to Feishu target", a
   assert.equal(sentData.target_id, "oc_escalation");
 });
 
+test("collaboration event consumer ignores duplicate escalation notice sends", async () => {
+  const broker = new CapturingBroker();
+  const idempotencyStore = new MemoryIdempotencyStore();
+  const subscriber = new EventSubscriber(broker, idempotencyStore, new MemoryEventArchiveRepository());
+  const connector = new CapturingFeishuConnector();
+  const consumer = new CollaborationEventConsumer(subscriber, connector, broker, idempotencyStore);
+
+  await consumer.start();
+  await broker.publish(escalationTriggeredEvent("evt-escalation-001"));
+  await broker.publish(escalationTriggeredEvent("evt-escalation-002"));
+
+  assert.equal(connector.cards.length, 1);
+  assert.equal(broker.published.filter((event) => event.type === "collaboration.notification.sent").length, 1);
+});
+
 class CapturingBroker implements EventBroker {
   private readonly subscriptions: Array<{ eventTypes: EventType[]; handler: EventHandler; options: SubscribeOptions }> = [];
   readonly published: CloudEvent[] = [];
